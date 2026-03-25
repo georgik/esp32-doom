@@ -1,4 +1,4 @@
-# ESP32 Doom for ESP-IDF 6
+# ESP32 Doom for ESP-IDF v6.0
 
 This repository ports PrBoom, itself a Doom source port, to the ESP32-S3 using ESP-IDF 6.x. This fork is adapted from the original Espressif [`esp32-doom`](https://github.com/espressif/esp32-doom) project and is configured for the ESP32-S3-BOX-3.
 
@@ -10,7 +10,7 @@ This is a proof of concept, not an official Espressif application note. It shoul
 
 - ESP32-S3-BOX-3
 - ESP32-S3 with PSRAM enabled
-- 16 MB flash layout from [`sdkconfig.defaults`](/Users/pedrominatel/Documents/Espressif/github/esp32-doom-esp-idf-6/sdkconfig.defaults)
+- 16 MB flash layout from `sdkconfig.defaults`
 
 The project depends on the `espressif/esp-box-3_noglib` component and requires ESP-IDF `>= 6.0.0`.
 
@@ -27,7 +27,7 @@ idf.py build
 Flash the application with the standard ESP-IDF flow:
 
 ```bash
-idf.py -p <PORT>
+idf.py -p <PORT> flash
 ```
 
 Adjust the serial port as needed for your machine.
@@ -39,7 +39,18 @@ The firmware expects two extra flash partitions defined in `partitions.csv`:
 - `prwad` at `0x200000` for `prboom.wad`
 - `wad` at `0x280000` for the Doom IWAD such as `DOOM1.WAD`
 
-The repo includes `flashwad.sh` as an example of how those assets can be written. The paths and serial device in that script are machine-specific, so update them before using it.
+The repo includes `flashwad.sh` to flash both WAD files using the ESP-IDF environment. The script:
+
+- locates and sources `export.sh`
+- uses `esptool.py` from the active ESP-IDF setup
+- auto-detects a serial port, or accepts one as the first argument
+
+Typical usage:
+
+```bash
+./flashwad.sh
+./flashwad.sh /dev/cu.usbmodem114201
+```
 
 If you want to flash the files manually, the relevant addresses are:
 
@@ -61,10 +72,11 @@ left  right       shoot
    down           wpn_ch
 ```
 
-### Todo
+## Todo
 
 - Add USB keyboard support.
 - Add Bluetooth HID support.
+- Add support to multiple BSPs.
 
 ## Known Limitations
 
@@ -73,4 +85,4 @@ left  right       shoot
 
 ## Credits
 
-Doom was released by id Software under the GNU GPL. PrBoom is a modification of that codebase; its contributors are listed in [`components/prboom/AUTHORS`](/Users/pedrominatel/Documents/Espressif/github/esp32-doom-esp-idf-6/components/prboom/AUTHORS). The ESP32-specific work originates from Espressif and this fork adapts that code for ESP-IDF 6.
+Doom was released by id Software under the GNU GPL. PrBoom is a modification of that codebase; its contributors are listed in `components/prboom/AUTHORS`. The ESP32-specific work originates from Espressif and this fork adapts that code for ESP-IDF 6.
