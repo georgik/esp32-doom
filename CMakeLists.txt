@@ -1,4 +1,4 @@
-cmake_minimum_required(VERSION 3.5)
+cmake_minimum_required(VERSION 3.10)
 
 list(APPEND EXTRA_COMPONENT_DIRS "components/prboom" "components/prboom-esp32-compat" "components/prboom-wad-tables")
 
