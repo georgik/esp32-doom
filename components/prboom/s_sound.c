@@ -46,6 +46,7 @@
 #include "m_random.h"
 #include "w_wad.h"
 #include "lprintf.h"
+#include "imfs.h"
 
 // when to clip out sounds
 // Does not fit the large outdoor areas.
@@ -466,9 +467,6 @@ void S_ChangeMusic(int musicnum, int looping)
   int music_file_failed; // cournia - if true load the default MIDI music
   char* music_filename;  // cournia
 
-  //jff 1/22/98 return if music is not enabled
-  if (!mus_card || nomusicparm)
-    return;
 
   if (musicnum <= mus_None || musicnum >= NUMMUSIC)
     I_Error("S_ChangeMusic: Bad music number %d", musicnum);
@@ -481,40 +479,22 @@ void S_ChangeMusic(int musicnum, int looping)
   // shutdown old music
   S_StopMusic();
 
-  // get lumpnum if neccessary
-  if (!music->lumpnum)
-    {
-      char namebuf[9];
-      sprintf(namebuf, "d_%s", music->name);
-      music->lumpnum = W_GetNumForName(namebuf);
+  //find music in imfs
+  int i=0;
+  while (g_imf_files[i].name!=NULL) {
+    if (strcmp(music->name, g_imf_files[i].name)==0) {
+       I_PlaySong(g_imf_files[i].data, g_imf_files[i].end-g_imf_files[i].data, looping);
+       break;
     }
+    i++;
+  }
 
-  music_file_failed = 1;
-
-  // proff_fs - only load when from IWAD
-  if (lumpinfo[music->lumpnum].source == source_iwad)
-    {
-      // cournia - check to see if we can play a higher quality music file
-      //           rather than the default MIDI
-      music_filename = I_FindFile(S_music_files[musicnum], "");
-      if (music_filename)
-        {
-          music_file_failed = I_RegisterMusic(music_filename, music);
-          free(music_filename);
-        }
-    }
-
-  if (music_file_failed)
-    {
-      //cournia - could not load music file, play default MIDI music
-
-      // load & register it
-      music->data = W_CacheLumpNum(music->lumpnum);
-      music->handle = I_RegisterSong(music->data, W_LumpLength(music->lumpnum));
-    }
-
-  // play it
-  I_PlaySong(music->handle, looping);
+  if (g_imf_files[i].name==NULL) {
+    I_Error("Not found music %s", music->name);
+	return;
+  } else {
+    printf("Playing music %s\n", music->name);
+  }
 
   mus_playing = music;
 }
@@ -529,12 +509,9 @@ void S_StopMusic(void)
   if (mus_playing)
     {
       if (mus_paused)
-        I_ResumeSong(mus_playing->handle);
+        I_ResumeSong();
 
-      I_StopSong(mus_playing->handle);
-      I_UnRegisterSong(mus_playing->handle);
-      if (mus_playing->lumpnum >= 0)
-  W_UnlockLumpNum(mus_playing->lumpnum); // cph - release the music data
+      I_StopSong();
 
       mus_playing->data = 0;
       mus_playing = 0;

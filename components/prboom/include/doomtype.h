@@ -39,14 +39,14 @@
 #include "config.h"
 #endif
 
+#ifndef __cplusplus
+#include <stdbool.h>
+#endif
+
 #ifndef __BYTEBOOL__
 #define __BYTEBOOL__
 /* Fixed to use builtin bool type with C++. */
-#ifdef __cplusplus
 typedef bool boolean;
-#else
-typedef enum {false, true} boolean;
-#endif
 typedef unsigned char byte;
 #endif
 

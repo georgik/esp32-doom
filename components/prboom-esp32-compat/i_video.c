@@ -55,10 +55,15 @@
 #include "rom/ets_sys.h"
 #include "spi_lcd.h"
 
-#include "esp_heap_alloc_caps.h"
+#include "esp_heap_caps.h"
 
 int use_fullscreen=0;
 int use_doublebuffer=0;
+
+#define DISPLAY_FRAME_DIVIDER 2
+static unsigned s_display_frame_counter;
+static boolean s_display_frame_due = true;
+static boolean s_force_display_frame = true;
 
 
 void I_StartTic (void)
@@ -100,6 +105,10 @@ void I_StartFrame (void)
 int I_StartDisplay(void)
 {
 	spi_lcd_wait_finish();
+	s_display_frame_counter++;
+	s_display_frame_due = s_force_display_frame ||
+		((s_display_frame_counter % DISPLAY_FRAME_DIVIDER) == 0);
+	s_force_display_frame = false;
   return true;
 }
 
@@ -118,7 +127,7 @@ static uint16_t *screena, *screenb;
 
 void I_FinishUpdate (void)
 {
-	uint16_t *scr=(uint16_t*)screens[0].data;
+	const uint8_t *scr=(const uint8_t*)screens[0].data;
 #if 0
 	int x, y;
 	char *chrs=" '.~+mM@";
@@ -131,10 +140,24 @@ void I_FinishUpdate (void)
 	}
 #endif
 #if 1
+	if (!s_display_frame_due) {
+		return;
+	}
 	spi_lcd_send(scr);
 #endif
 	//Flip framebuffers
 //	if (scr==screena) screens[0].data=screenb; else screens[0].data=screena;
+}
+
+boolean I_DisplayFrameDue(void)
+{
+	return s_display_frame_due;
+}
+
+void I_ForceDisplayFrame(void)
+{
+	s_force_display_frame = true;
+	s_display_frame_due = true;
 }
 
 int16_t lcdpal[256];
@@ -145,13 +168,15 @@ void I_SetPalette (int pal)
 	int pplump = W_GetNumForName("PLAYPAL");
 	const byte * palette = W_CacheLumpNum(pplump);
 	palette+=pal*(3*256);
-	for (i=0; i<255 ; i++) {
+	for (i=0; i<256 ; i++) {
 		v=((palette[0]>>3)<<11)+((palette[1]>>2)<<5)+(palette[2]>>3);
 		lcdpal[i]=(v>>8)+(v<<8);
 //		lcdpal[i]=v;
 		palette += 3;
 	}
 	W_UnlockLumpNum(pplump);
+	spi_lcd_invalidate();
+	I_ForceDisplayFrame();
 }
 
 
@@ -164,7 +189,7 @@ void I_PreInitGraphics(void)
 {
 	lprintf(LO_INFO, "preinitgfx");
 #ifdef INTERNAL_MEM_FB
-	screenbuf=pvPortMallocCaps(320*240, MALLOC_CAP_INTERNAL|MALLOC_CAP_8BIT);
+	screenbuf=heap_caps_malloc(320*240, /*MALLOC_CAP_INTERNAL|MALLOC_CAP_8BIT*/MALLOC_CAP_SPIRAM);
 	assert(screenbuf);
 #endif
 }

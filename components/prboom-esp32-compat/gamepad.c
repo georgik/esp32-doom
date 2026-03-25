@@ -23,6 +23,7 @@
 #include "d_main.h"
 #include "gamepad.h"
 #include "lprintf.h"
+#include "tsinput.h"
 
 #include "psxcontroller.h"
 #include "freertos/FreeRTOS.h"
@@ -91,7 +92,8 @@ void jsTask(void *arg) {
 	printf("Joystick task starting.\n");
 	while(1) {
 		vTaskDelay(20/portTICK_PERIOD_MS);
-		joyVal=psxReadInput();
+//		joyVal=psxReadInput();
+		joyVal=tsJsInputGet();
 //		if (joyVal!=oldJoyVal) printf("Joy: %x\n", joyVal^0xffff);
 		oldJoyVal=joyVal;
 	}
@@ -104,7 +106,7 @@ void gamepadInit(void)
 
 void jsInit() {
 	//Starts the js task
-	psxcontrollerInit();
+//	psxcontrollerInit();
+	tsJsInputInit();
 	xTaskCreatePinnedToCore(&jsTask, "js", 5000, NULL, 7, NULL, 0);
 }
-

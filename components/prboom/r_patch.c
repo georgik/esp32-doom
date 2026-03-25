@@ -75,6 +75,17 @@ typedef struct
 static rpatch_t *patches = 0;
 
 static rpatch_t *texture_composites = 0;
+static const rpatch_t empty_patch;
+
+static boolean R_IsValidPatchLump(int id)
+{
+  if ((unsigned)id < (unsigned)numlumps) {
+    return true;
+  }
+
+  lprintf(LO_WARN, "R_IsValidPatchLump: ignoring invalid patch lump %d (numlumps=%d)\n", id, numlumps);
+  return false;
+}
 
 //---------------------------------------------------------------------------
 void R_InitPatches(void) {
@@ -117,6 +128,8 @@ void R_FlushAllPatches(void) {
 //---------------------------------------------------------------------------
 int R_NumPatchWidth(int lump)
 {
+  if (!R_IsValidPatchLump(lump))
+    return 0;
   const rpatch_t *patch = R_CachePatchNum(lump);
   int width = patch->width;
   R_UnlockPatchNum(lump);
@@ -126,6 +139,8 @@ int R_NumPatchWidth(int lump)
 //---------------------------------------------------------------------------
 int R_NumPatchHeight(int lump)
 {
+  if (!R_IsValidPatchLump(lump))
+    return 0;
   const rpatch_t *patch = R_CachePatchNum(lump);
   int height = patch->height;
   R_UnlockPatchNum(lump);
@@ -673,6 +688,9 @@ const rpatch_t *R_CachePatchNum(int id) {
   if (!patches)
     I_Error("R_CachePatchNum: Patches not initialized");
 
+  if (!R_IsValidPatchLump(id))
+    return &empty_patch;
+
 #ifdef RANGECHECK
   if (id >= numlumps)
     I_Error("createPatch: %i >= numlumps", id);
@@ -702,6 +720,8 @@ const rpatch_t *R_CachePatchNum(int id) {
 void R_UnlockPatchNum(int id)
 {
   const int unlocks = 1;
+  if (!R_IsValidPatchLump(id))
+    return;
 #ifdef SIMPLECHECKS
   if ((signed short)patches[id].locks < unlocks)
     lprintf(LO_DEBUG, "R_UnlockPatchNum: Excess unlocks on %8s (%d-%d)\n", 
@@ -784,4 +804,3 @@ const rcolumn_t *R_GetPatchColumn(const rpatch_t *patch, int columnIndex) {
   if (patch->isNotTileable) return R_GetPatchColumnClamped(patch, columnIndex);
   else return R_GetPatchColumnWrapped(patch, columnIndex);
 }
-

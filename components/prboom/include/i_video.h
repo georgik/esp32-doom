@@ -53,6 +53,8 @@ void I_SetPalette(int pal); /* CPhipps - pass down palette number */
 
 void I_UpdateNoBlit (void);
 void I_FinishUpdate (void);
+boolean I_DisplayFrameDue(void);
+void I_ForceDisplayFrame(void);
 
 int I_ScreenShot (const char *fname);
 

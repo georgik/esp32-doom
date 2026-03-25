@@ -53,10 +53,6 @@
 
 #include "d_main.h"
 
-int snd_card = 0;
-int mus_card = 0;
-int snd_samplerate = 0;
-
 
 void I_UpdateSoundParams(int handle, int volume, int seperation, int pitch)
 {
@@ -71,12 +67,6 @@ int I_GetSfxLumpNum(sfxinfo_t* sfx)
 {
     return 1;
 }
-
-int I_StartSound(int id, int channel, int vol, int sep, int pitch, int priority)
-{
-  return channel;
-}
-
 
 
 void I_StopSound (int handle)
@@ -97,44 +87,12 @@ int I_AnySoundStillPlaying(void)
 
 
 
-void I_ShutdownSound(void)
-{
-}
-
-//static SDL_AudioSpec audio;
-
-void I_InitSound(void)
-{
-}
-
-
 
 
 void I_ShutdownMusic(void)
 {
 }
 
-void I_InitMusic(void)
-{
-}
-
-void I_PlaySong(int handle, int looping)
-{
-}
-
-extern int mus_pause_opt; // From m_misc.c
-
-void I_PauseSong (int handle)
-{
-}
-
-void I_ResumeSong (int handle)
-{
-}
-
-void I_StopSong(int handle)
-{
-}
 
 void I_UnRegisterSong(int handle)
 {
@@ -148,10 +106,6 @@ int I_RegisterSong(const void *data, size_t len)
 int I_RegisterMusic( const char* filename, musicinfo_t *song )
 {
     return 1;
-}
-
-void I_SetMusicVolume(int volume)
-{
 }
 
 

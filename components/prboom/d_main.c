@@ -209,6 +209,7 @@ void D_Display (void)
   static boolean borderwillneedredraw = false;
   static gamestate_t oldgamestate = -1;
   boolean wipe;
+  boolean present_frame;
   boolean viewactive = false, isborder = false;
 
   if (nodrawers)                    // for comparative timing / profiling
@@ -220,6 +221,25 @@ void D_Display (void)
   // save the current screen if about to wipe
   if ((wipe = gamestate != wipegamestate) && (V_GetMode() != VID_MODEGL))
     wipe_StartScreen();
+
+  if (wipe || menuactive || paused || gamestate != GS_LEVEL) {
+    I_ForceDisplayFrame();
+  }
+  present_frame = I_DisplayFrameDue();
+
+  if (!present_frame && gamestate == GS_LEVEL && !wipe) {
+    oldgamestate = wipegamestate = gamestate;
+#ifdef HAVE_NET
+    NetUpdate();
+#else
+    D_BuildNewTiccmds();
+#endif
+    I_EndDisplay();
+    if (paused) {
+      I_uSleep(1000);
+    }
+    return;
+  }
 
   if (gamestate != GS_LEVEL) { // Not a level
     switch (oldgamestate) {
@@ -858,6 +878,7 @@ static void IdentifyVersion (void)
       //jff 9/3/98 use logical output routine
       lprintf(LO_WARN,"Unknown Game Version, may not work\n");
     D_AddFile(iwad,source_iwad);
+	D_AddFile("prboom.wad",source_pre);//source_iwad);
     free(iwad);
   }
   else
@@ -1342,9 +1363,6 @@ static void D_DoomMainSetup(void)
     nomusicparm = nosound || M_CheckParm("-nomusic");
     nosfxparm   = nosound || M_CheckParm("-nosfx");
   }
-	//Hardcode music and sound disabled -- JD
-    nomusicparm=true;
-    nosfxparm=true;
   //jff end of sound/music command line parms
 
   // killough 3/2/98: allow -nodraw -noblit generally
