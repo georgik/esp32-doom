@@ -7,10 +7,10 @@ SRCS
   "i_network.c"
   "i_system.c"
   "i_video.c"
-  "psxcontroller.c"
   "spi_lcd.c"
-  "tsinput.c"
   "sndhw.c"
+  "i2c_joystick.c"
+  "atom_input.c"
 
 INCLUDE_DIRS
   "include" "."
@@ -23,10 +23,12 @@ PRIV_REQUIRES
   esp_partition
   driver
   esp_lcd
-  esp_lcd_touch
-  esp-box-3_noglib
-  esp_codec_dev
+  m5_atom_s3
+  esp_driver_i2c
 )
+
+#Need this otherwise linking fails because of some sort of link optimization for sndhw...
+target_link_libraries(${COMPONENT_LIB} INTERFACE "-u sndhw_init")
 
 #Need this otherwise linking fails because of some sort of link optimization for sndhw...
 target_link_libraries(${COMPONENT_LIB} INTERFACE "-u sndhw_init")

@@ -182,6 +182,7 @@ void I_SetPalette (int pal)
 
 unsigned char *screenbuf;
 
+// For AtomS3 without PSRAM, try to fit in internal RAM
 #define INTERNAL_MEM_FB
 
 
@@ -189,8 +190,14 @@ void I_PreInitGraphics(void)
 {
 	lprintf(LO_INFO, "preinitgfx");
 #ifdef INTERNAL_MEM_FB
-	screenbuf=heap_caps_malloc(320*240, /*MALLOC_CAP_INTERNAL|MALLOC_CAP_8BIT*/MALLOC_CAP_SPIRAM);
+	// Try internal RAM first (for AtomS3 without PSRAM)
+	screenbuf=heap_caps_malloc(320*240, MALLOC_CAP_INTERNAL|MALLOC_CAP_8BIT);
+	if (!screenbuf) {
+		// Fallback to any memory if internal fails
+		screenbuf=malloc(320*240);
+	}
 	assert(screenbuf);
+	lprintf(LO_INFO, "Screen buffer allocated: %p\n", screenbuf);
 #endif
 }
 

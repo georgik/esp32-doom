@@ -23,7 +23,7 @@
 #include "d_main.h"
 #include "gamepad.h"
 #include "lprintf.h"
-#include "tsinput.h"
+#include "atom_input.h"
 
 #include "psxcontroller.h"
 #include "freertos/FreeRTOS.h"
@@ -50,7 +50,7 @@ static const JsKeyMap keymap[]={
 	{0x40, &key_down},
 	{0x80, &key_left},
 	{0x20, &key_right},
-	
+
 	{0x4000, &key_use},				//cross
 	{0x2000, &key_fire},			//circle
 	{0x2000, &key_menu_enter},		//circle
@@ -59,7 +59,7 @@ static const JsKeyMap keymap[]={
 
 	{0x8, &key_escape},				//start
 	{0x1, &key_map},				//select
-	
+
 	{0x400, &key_strafeleft},		//L1
 	{0x100, &key_speed},			//L2
 	{0x800, &key_straferight},		//R1
@@ -93,7 +93,7 @@ void jsTask(void *arg) {
 	while(1) {
 		vTaskDelay(20/portTICK_PERIOD_MS);
 //		joyVal=psxReadInput();
-		joyVal=tsJsInputGet();
+		joyVal=atomJsInputGet();
 //		if (joyVal!=oldJoyVal) printf("Joy: %x\n", joyVal^0xffff);
 		oldJoyVal=joyVal;
 	}
@@ -107,6 +107,7 @@ void gamepadInit(void)
 void jsInit() {
 	//Starts the js task
 //	psxcontrollerInit();
-	tsJsInputInit();
+	// AtomS3 uses its own polling task inside atomInputInit
+	atomInputInit();
 	xTaskCreatePinnedToCore(&jsTask, "js", 5000, NULL, 7, NULL, 0);
 }
