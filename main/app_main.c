@@ -73,11 +73,10 @@ void app_main()
 	spi_lcd_init();
 	printf("LCD initialized\n");
 
-	// TEMPORARILY SKIP JOYSTICK INITIALIZATION FOR ATOMS3R COMPATIBILITY TESTING
-	// The AtomS3R may have different I2C hardware or pin mappings
-	printf("SKIPPING joystick initialization for AtomS3R compatibility testing\n");
-	// jsInit();
-	printf("Joystick initialization skipped\n");
+	// Initialize AtomS3R joystick system
+	printf("Initializing AtomS3R joystick system...\n");
+	jsInit();
+	printf("Joystick initialization completed\n");
 
 	// Disable task watchdog temporarily for AtomS3R compatibility
 	// The Doom engine initialization can take longer than the watchdog timeout
