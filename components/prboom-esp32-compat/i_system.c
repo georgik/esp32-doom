@@ -73,14 +73,14 @@
 #include "freertos/task.h"
 
 #include "esp_partition.h"
-#include "spi_flash_mmap.h"
+// #include "spi_flash_mmap.h"  // Not needed anymore - using PSRAM instead
 
 #ifdef __GNUG__
 #pragma implementation "i_system.h"
 #endif
 #include "i_system.h"
 
-#include <sys/time.h>
+// #include <sys/time.h>  // Not needed - using FreeRTOS ticks instead
 
 int realtime=0;
 
@@ -91,29 +91,35 @@ void I_uSleep(unsigned long usecs)
 }
 
 static unsigned long getMsTicks() {
-  struct timeval tv;
-  struct timezone tz;
-  unsigned long thistimereply;
+  // Use FreeRTOS tick count instead of gettimeofday to avoid lock issues
+  static unsigned long start_ticks = 0;
+  static bool initialized = false;
 
-  gettimeofday(&tv, &tz);
+  if (!initialized) {
+    start_ticks = xTaskGetTickCount();
+    initialized = true;
+  }
 
-  //convert to ms
-  unsigned long now = tv.tv_usec/1000+tv.tv_sec*1000;
-  return now;
+  unsigned long current_ticks = xTaskGetTickCount();
+  return (current_ticks - start_ticks) * portTICK_PERIOD_MS;
 }
 
 int I_GetTime_RealTime (void)
 {
-  struct timeval tv;
-  struct timezone tz;
-  unsigned long thistimereply;
+  // Use FreeRTOS tick count instead of gettimeofday to avoid lock issues
+  // TICRATE is 35 ticks per second (Doom standard)
+  static unsigned long start_ticks = 0;
+  static bool initialized = false;
 
-  gettimeofday(&tv, &tz);
+  if (!initialized) {
+    start_ticks = xTaskGetTickCount();
+    initialized = true;
+  }
 
-  thistimereply = (tv.tv_sec * TICRATE + (tv.tv_usec * TICRATE) / 1000000);
+  unsigned long current_ticks = xTaskGetTickCount();
+  unsigned long elapsed_ms = (current_ticks - start_ticks) * portTICK_PERIOD_MS;
 
-  return thistimereply;
-
+  return (elapsed_ms * TICRATE) / 1000;
 }
 
 const int displaytime=0;
@@ -226,15 +232,14 @@ void I_Close(int fd) {
 
 
 typedef struct {
-	spi_flash_mmap_handle_t handle;
-	void *addr;
-	int offset;
-	size_t len;
-	const esp_partition_t *part;
-	int used;
+	void *addr;		// Allocated buffer in PSRAM
+	int offset;		// Original offset in partition
+	size_t len;		// Length of mapped region
+	const esp_partition_t *part;	// Source partition
+	int used;		// Reference count for this mapping
 } MmapHandle;
 
-#define NO_MMAP_HANDLES 128
+#define NO_MMAP_HANDLES 64  // Increased since we're using PSRAM now
 static MmapHandle mmapHandle[NO_MMAP_HANDLES];
 
 static int nextHandle=0;
@@ -251,9 +256,9 @@ static int getFreeHandle() {
 	}
 	
 	if (mmapHandle[nextHandle].addr) {
-		spi_flash_munmap(mmapHandle[nextHandle].handle);
+		free(mmapHandle[nextHandle].addr);
 		mmapHandle[nextHandle].addr=NULL;
-//		printf("mmap: freeing handle %d\n", nextHandle);
+//		printf("mmap: freeing PSRAM handle %d\n", nextHandle);
 	}
 	int r=nextHandle;
 	nextHandle++;
@@ -266,18 +271,30 @@ static void freeUnusedMmaps() {
 	for (int i=0; i<NO_MMAP_HANDLES; i++) {
 		//Check if handle is not in use but is mapped.
 		if (mmapHandle[i].used==0 && mmapHandle[i].addr!=NULL) {
-			spi_flash_munmap(mmapHandle[i].handle);
+			free(mmapHandle[i].addr);
 			mmapHandle[i].addr=NULL;
 			printf("Freeing handle %d\n", i);
 		}
-		if (i & 0x20 == 0x20) vTaskDelay(1);  // Wdt issue?!
+		if ((i & 0x7) == 0x7) vTaskDelay(1);  // Feed watchdog even more frequently (every 8 iterations)
 	}
 }
 
 void *I_Mmap(void *addr, size_t length, int prot, int flags, int ifd, off_t offset) {
 	int i;
-	esp_err_t err;
 	void *retaddr=NULL;
+
+	// Feed watchdog periodically during memory mapping operations
+	static int watchdog_counter = 0;
+	if (++watchdog_counter % 5 == 0) {  // Feed more frequently
+		vTaskDelay(1);
+	}
+
+	// Proactive cleanup: free unused mappings before attempting new ones
+	// This prevents MMU exhaustion during initialization
+	static int cleanup_counter = 0;
+	if (++cleanup_counter % 8 == 0) {
+		freeUnusedMmaps();
+	}
 
 	for (i=0; i<NO_MMAP_HANDLES; i++) {
 		if (mmapHandle[i].offset==offset && mmapHandle[i].len==length && mmapHandle[i].part==fds[ifd].part) {
@@ -288,23 +305,35 @@ void *I_Mmap(void *addr, size_t length, int prot, int flags, int ifd, off_t offs
 
 	i=getFreeHandle();
 
-//	lprintf(LO_INFO, "I_Mmap: mmaping offset %d size %d handle %d part @%x\n", (int)offset, (int)length, i, fds[ifd].part->address);
-	err=esp_partition_mmap(fds[ifd].part, offset, length, SPI_FLASH_MMAP_DATA, (const void**)&retaddr, &mmapHandle[i].handle);
-	if (err==ESP_ERR_NO_MEM) {
-		lprintf(LO_ERROR, "I_Mmap: No free address space. Cleaning up unused cached mmaps...\n");
+//	lprintf(LO_INFO, "I_Mmap: allocating %d bytes from PSRAM for offset %d\n", (int)length, (int)offset);
+	// Allocate buffer in PSRAM and read data directly from flash
+	// This avoids the limited ESP32 MMU address space
+	retaddr = malloc(length);
+	if (retaddr == NULL) {
+		// Try freeing unused allocations first
+		lprintf(LO_ERROR, "I_Mmap: malloc failed, cleaning up unused allocations...\n");
 		freeUnusedMmaps();
-		err=esp_partition_mmap(fds[ifd].part, offset, length, SPI_FLASH_MMAP_DATA, (const void**)&retaddr, &mmapHandle[i].handle);
+		retaddr = malloc(length);
+
+		if (retaddr == NULL) {
+			lprintf(LO_ERROR, "I_Mmap: Still can't allocate %d bytes!", length);
+			return NULL;
+		}
 	}
+
+	// Read data from flash into PSRAM buffer
+	esp_err_t read_err = esp_partition_read(fds[ifd].part, offset, retaddr, length);
+	if (read_err != ESP_OK) {
+		lprintf(LO_ERROR, "I_Mmap: Can't read from flash: %x (len=%d)!", read_err, length);
+		free(retaddr);
+		return NULL;
+	}
+
 	mmapHandle[i].addr=retaddr;
 	mmapHandle[i].len=length;
 	mmapHandle[i].used=1;
 	mmapHandle[i].offset=offset;
 	mmapHandle[i].part=fds[ifd].part;
-
-	if (err!=ESP_OK) {
-		lprintf(LO_ERROR, "I_Mmap: Can't mmap: %x (len=%d)!", err, length);
-		return NULL;
-	}
 
 	return retaddr;
 }
@@ -329,9 +358,8 @@ void I_Read(int ifd, void* vbuf, size_t sz)
 	if (fds[ifd].offset + sz > fds[ifd].size) {
 		sz = fds[ifd].size - fds[ifd].offset;
 	}
-	uint8_t *d=I_Mmap(NULL, sz, 0, 0, ifd, fds[ifd].offset);
-	memcpy(vbuf, d, sz);
-	I_Munmap(d, sz);
+	// Direct flash read into PSRAM instead of mmap to avoid MMU exhaustion
+	esp_partition_read(fds[ifd].part, fds[ifd].offset, vbuf, sz);
 	fds[ifd].offset += sz;
 }
 

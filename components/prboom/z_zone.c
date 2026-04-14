@@ -56,6 +56,10 @@
 #include "g_game.h"
 #include "lprintf.h"
 
+#ifdef ESP_PLATFORM
+#include "esp_heap_caps.h"
+#endif
+
 #ifdef DJGPP
 #include <dpmi.h>
 #endif
@@ -390,8 +394,14 @@ void *(Z_Malloc)(size_t size, int tag, void **user
 #ifdef HAVE_LIBDMALLOC
   while (!(block = dmalloc_malloc(file,line,size + HEADER_SIZE,DMALLOC_FUNC_MALLOC,0,0))) {
 #else
+  // Try standard malloc first
   while (!(block = (malloc)(size + HEADER_SIZE))) {
+#ifdef ESP_PLATFORM
+    // Fallback to PSRAM allocation for AtomS3R compatibility
+    block = heap_caps_malloc(size + HEADER_SIZE, MALLOC_CAP_SPIRAM);
+    if (block) break;
 #endif
+
     if (!blockbytag[PU_CACHE])
       I_Error ("Z_Malloc: Failure trying to allocate %lu bytes"
 #ifdef INSTRUMENTED
@@ -404,6 +414,7 @@ void *(Z_Malloc)(size_t size, int tag, void **user
       );
     Z_FreeTags(PU_CACHE,PU_CACHE);
   }
+#endif
 
   if (!blockbytag[tag])
   {

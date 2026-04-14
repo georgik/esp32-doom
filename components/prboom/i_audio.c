@@ -65,8 +65,8 @@
 
 extern int sound_inited;
 
-int snd_card=1;
-int mus_card=1;
+int snd_card=0;  // Disable sound on ESP32 AtomS3R (no audio hardware)
+int mus_card=0;  // Disable music on ESP32 AtomS3R (prevents crash)
 #define RATE (22050)
 int snd_samplerate=RATE;
 

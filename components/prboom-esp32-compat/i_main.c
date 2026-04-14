@@ -60,6 +60,8 @@
 #include <signal.h>
 #include <stdio.h>
 #include <stdlib.h>
+#include "freertos/FreeRTOS.h"
+#include "freertos/task.h"
 
 /* Most of the following has been rewritten by Lee Killough
  *
@@ -204,6 +206,9 @@ int doom_main(int argc, char const * const *argv)
       fprintf(stderr, "Revoked uid %d\n",stored_euid);
 #endif
 
+  printf("doom_main: Starting...\n");
+  vTaskDelay(pdMS_TO_TICKS(100));
+
   myargc = argc;
   myargv = argv;
 
@@ -216,7 +221,11 @@ int doom_main(int argc, char const * const *argv)
 #endif
   /* Version info */
   lprintf(LO_INFO,"\n");
+  printf("doom_main: About to print version...\n");
+  vTaskDelay(pdMS_TO_TICKS(50));
   PrintVer();
+  printf("doom_main: Version printed\n");
+  vTaskDelay(pdMS_TO_TICKS(50));
 
   /* cph - Z_Close must be done after I_Quit, so we register it first. */
   atexit(Z_Close);
@@ -236,13 +245,25 @@ int doom_main(int argc, char const * const *argv)
      left in an unstable state.
   */
 
+  printf("doom_main: About to call Z_Init()...\n");
+  vTaskDelay(pdMS_TO_TICKS(50));
   Z_Init();                  /* 1/18/98 killough: start up memory stuff first */
+  printf("doom_main: Z_Init() completed\n");
+  vTaskDelay(pdMS_TO_TICKS(50));
 
+  printf("doom_main: About to call I_SetAffinityMask()...\n");
   I_SetAffinityMask();
+  printf("doom_main: I_SetAffinityMask() completed\n");
+  vTaskDelay(pdMS_TO_TICKS(50));
 
+  printf("doom_main: About to call I_PreInitGraphics()...\n");
   /* cphipps - call to video specific startup code */
   I_PreInitGraphics();
+  printf("doom_main: I_PreInitGraphics() completed\n");
+  vTaskDelay(pdMS_TO_TICKS(50));
 
+  printf("doom_main: About to call D_DoomMain()...\n");
   D_DoomMain ();
+  printf("doom_main: D_DoomMain() completed unexpectedly\n");
   return 0;
 }

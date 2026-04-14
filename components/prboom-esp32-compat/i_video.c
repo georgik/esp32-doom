@@ -35,6 +35,7 @@
 #include "config.h"
 #include <stdlib.h>
 #include <unistd.h>
+#include <stdio.h>
 #include "m_argv.h"
 #include "doomstat.h"
 #include "doomdef.h"
@@ -56,6 +57,8 @@
 #include "spi_lcd.h"
 
 #include "esp_heap_caps.h"
+#include "freertos/FreeRTOS.h"
+#include "freertos/task.h"
 
 int use_fullscreen=0;
 int use_doublebuffer=0;
@@ -182,23 +185,48 @@ void I_SetPalette (int pal)
 
 unsigned char *screenbuf;
 
-// For AtomS3 without PSRAM, try to fit in internal RAM
-#define INTERNAL_MEM_FB
+// For AtomS3R with PSRAM, allocate large buffers in PSRAM
+#define USE_PSRAM_FRAMEBUFFER
 
 
 void I_PreInitGraphics(void)
 {
-	lprintf(LO_INFO, "preinitgfx");
-#ifdef INTERNAL_MEM_FB
-	// Try internal RAM first (for AtomS3 without PSRAM)
-	screenbuf=heap_caps_malloc(320*240, MALLOC_CAP_INTERNAL|MALLOC_CAP_8BIT);
+	printf("I_PreInitGraphics: Starting graphics pre-initialization\n");
+	vTaskDelay(pdMS_TO_TICKS(50));
+
+	printf("I_PreInitGraphics: About to allocate screen buffer\n");
+	vTaskDelay(pdMS_TO_TICKS(50));
+
+#ifdef USE_PSRAM_FRAMEBUFFER
+	printf("I_PreInitGraphics: USE_PSRAM_FRAMEBUFFER is defined\n");
+
+	// Try regular malloc first - it should automatically use PSRAM on AtomS3R
+	printf("I_PreInitGraphics: Trying regular malloc for screen buffer...\n");
+	vTaskDelay(pdMS_TO_TICKS(50));
+
+	screenbuf=malloc(320*240);
+	printf("I_PreInitGraphics: malloc allocation done, result: %p\n", screenbuf);
+
 	if (!screenbuf) {
-		// Fallback to any memory if internal fails
-		screenbuf=malloc(320*240);
+		// If malloc fails, try heap_caps_malloc as fallback
+		printf("I_PreInitGraphics: malloc failed, trying heap_caps_malloc with SPIRAM...\n");
+		vTaskDelay(pdMS_TO_TICKS(50));
+
+		screenbuf=heap_caps_malloc(320*240, MALLOC_CAP_SPIRAM);
+		printf("I_PreInitGraphics: heap_caps_malloc done, result: %p\n", screenbuf);
 	}
+
+	printf("I_PreInitGraphics: Screen buffer allocated: %p\n", screenbuf);
 	assert(screenbuf);
-	lprintf(LO_INFO, "Screen buffer allocated: %p\n", screenbuf);
+	printf("I_PreInitGraphics: Screen buffer allocation successful\n");
+#else
+	printf("I_PreInitGraphics: USE_PSRAM_FRAMEBUFFER is NOT defined\n");
+	screenbuf=malloc(320*240);
+	assert(screenbuf);
 #endif
+
+	printf("I_PreInitGraphics: Graphics pre-initialization completed\n");
+	vTaskDelay(pdMS_TO_TICKS(50));
 }
 
 
