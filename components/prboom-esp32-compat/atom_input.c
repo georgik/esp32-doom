@@ -3,21 +3,22 @@
  * Modern Dual-Stick FPS Controls for M5Stack AtomS3R + Joystick Unit
  *
  * CONTROL MAPPING:
- * Left Joystick (Joy1) - Movement + Speed Modifier:
+ * Left Joystick (Joy1) - Movement:
  *   UP/DOWN    - Move Forward/Backward
  *   LEFT/RIGHT - Strafe Left/Right
- *   PRESS      - Speed (Run) Modifier
+ *   PRESS      - Fire (Primary Attack)
  *
- * Right Joystick (Joy2) - Turning + Fire:
- *   LEFT/RIGHT - Turn Left/Right
+ * Right Joystick (Joy2) - Movement + Strafe:
+ *   UP/DOWN    - Move Forward/Backward (same as left stick)
+ *   LEFT/RIGHT - Strafe Left/Right
  *   PRESS      - Fire (Primary Attack)
  *
  * Face Buttons:
- *   LEFT       - Weapon Toggle
- *   RIGHT      - Use (Open Doors/Activate Switches)
+ *   LEFT       - Escape (Menu)
+ *   RIGHT      - Weapon Change
  *
  * GPIO Button (GPIO 41):
- *   Built-in button - Escape (Menu)
+ *   Built-in button - Use (Open Doors/Activate Switches)
  */
 
 #include "atom_input.h"
@@ -41,12 +42,12 @@ static bool s_initialized = false;
 // Joystick state tracking
 typedef struct {
     int joy1_x, joy1_y;      // Left joystick (movement: forward/back + strafe)
-    int joy2_x, joy2_y;      // Right joystick (turning: left/right)
-    bool btn_left;           // Face button LEFT (Weapon Toggle)
-    bool btn_right;          // Face button RIGHT (Use)
-    bool btn_left_stick;     // Left joystick press (Speed modifier)
+    int joy2_x, joy2_y;      // Right joystick (movement: forward/back + strafe)
+    bool btn_left;           // Face button LEFT (Escape)
+    bool btn_right;          // Face button RIGHT (Weapon Change)
+    bool btn_left_stick;     // Left joystick press (Fire)
     bool btn_right_stick;    // Right joystick press (Fire)
-    bool btn_builtin;        // GPIO 41 built-in (Escape)
+    bool btn_builtin;        // GPIO 41 built-in (Use)
 } atom_joystick_state_t;
 
 static atom_joystick_state_t s_joystick_state = {0};
@@ -65,20 +66,22 @@ typedef struct {
 } button_map_t;
 
 static button_map_t s_button_map[] = {
-    // Note: LEFT_STICK and RIGHT_STICK are handled separately as Speed/Fire modifiers
-    {&s_joystick_state.btn_right,       &s_prev_joystick_state.btn_right,       &key_use,          "Use"},           // RIGHT button → Use (open doors)
-    {&s_joystick_state.btn_left,        &s_prev_joystick_state.btn_left,        &key_weapontoggle, "Weapon"},        // LEFT button → Weapon Toggle
-    {&s_joystick_state.btn_builtin,     &s_prev_joystick_state.btn_builtin,     &key_escape,       "Escape"},        // GPIO 41 → Escape (menu)
+    // Note: LEFT_STICK and RIGHT_STICK are handled separately as Fire
+    {&s_joystick_state.btn_left,        &s_prev_joystick_state.btn_left,        &key_escape,       "Escape"},        // LEFT button → Escape (menu)
+    {&s_joystick_state.btn_right,       &s_prev_joystick_state.btn_right,       &key_weapontoggle, "Weapon"},        // RIGHT button → Weapon Change
+    {&s_joystick_state.btn_builtin,     &s_prev_joystick_state.btn_builtin,     &key_use,          "Use"},           // GPIO 41 → Use (open doors)
 };
 
 #define NUM_BUTTONS (sizeof(s_button_map) / sizeof(s_button_map[0]))
 
 // Axis state tracking
 static struct {
-    bool up_active;
-    bool down_active;
-    bool left_active;
-    bool right_active;
+    bool joy1_up_active;
+    bool joy1_down_active;
+    bool joy1_left_active;
+    bool joy1_right_active;
+    bool joy2_up_active;
+    bool joy2_down_active;
     bool joy2_left_active;
     bool joy2_right_active;
 } s_axis_state = {0};
@@ -181,56 +184,49 @@ static void joystick_task(void *arg) {
 
         update_joystick_state();
 
-        // Process Joy1 (Left Stick - Movement with Strafing)
-        // Modern dual-stick FPS: Left stick = movement (forward/back + strafe left/right)
-        process_joystick_axis(s_joystick_state.joy1_x, false, &key_straferight, &s_axis_state.right_active, "STRAFE RIGHT");
-        process_joystick_axis(s_joystick_state.joy1_x, true, &key_strafeleft, &s_axis_state.left_active, "STRAFE LEFT");
-        process_joystick_axis(s_joystick_state.joy1_y, true, &key_up, &s_axis_state.up_active, "FORWARD");
-        process_joystick_axis(s_joystick_state.joy1_y, false, &key_down, &s_axis_state.down_active, "BACKWARD");
+        // Process Joy1 (Left Stick) - Movement + Strafing
+        process_joystick_axis(s_joystick_state.joy1_x, false, &key_straferight, &s_axis_state.joy1_right_active, "JOY1 STRAFE RIGHT");
+        process_joystick_axis(s_joystick_state.joy1_x, true, &key_strafeleft, &s_axis_state.joy1_left_active, "JOY1 STRAFE LEFT");
+        process_joystick_axis(s_joystick_state.joy1_y, true, &key_up, &s_axis_state.joy1_up_active, "JOY1 FORWARD");
+        process_joystick_axis(s_joystick_state.joy1_y, false, &key_down, &s_axis_state.joy1_down_active, "JOY1 BACKWARD");
 
-        // Process Joy2 (Right Stick - Turning + Fire)
-        // Modern dual-stick FPS: Right stick = turning (left/right) + primary action (fire)
-        process_joystick_axis(s_joystick_state.joy2_x, true, &key_left, &s_axis_state.joy2_left_active, "TURN LEFT");
-        process_joystick_axis(s_joystick_state.joy2_x, false, &key_right, &s_axis_state.joy2_right_active, "TURN RIGHT");
+        // Process Joy2 (Right Stick) - Movement + Strafing (same as left stick)
+        process_joystick_axis(s_joystick_state.joy2_x, false, &key_straferight, &s_axis_state.joy2_right_active, "JOY2 STRAFE RIGHT");
+        process_joystick_axis(s_joystick_state.joy2_x, true, &key_strafeleft, &s_axis_state.joy2_left_active, "JOY2 STRAFE LEFT");
+        process_joystick_axis(s_joystick_state.joy2_y, true, &key_up, &s_axis_state.joy2_up_active, "JOY2 FORWARD");
+        process_joystick_axis(s_joystick_state.joy2_y, false, &key_down, &s_axis_state.joy2_down_active, "JOY2 BACKWARD");
 
-        // Process Joy2 stick press as FIRE (primary action on right stick)
+        // Process both joystick presses as FIRE
+        bool *joy1_fire = &s_joystick_state.btn_left_stick;
         bool *joy2_fire = &s_joystick_state.btn_right_stick;
+        static bool joy1_fire_was_active = false;
         static bool joy2_fire_was_active = false;
-        if (*joy2_fire && !joy2_fire_was_active) {
+        bool combined_fire = *joy1_fire || *joy2_fire;
+        static bool combined_fire_was_active = false;
+
+        if (combined_fire && !combined_fire_was_active) {
             event_t ev = {.type = ev_keydown, .data1 = key_fire};
             D_PostEvent(&ev);
-            ESP_LOGD(TAG, "Joy2 press: Fire DOWN");
-        } else if (!*joy2_fire && joy2_fire_was_active) {
+            ESP_LOGD(TAG, "Joystick press: Fire DOWN");
+        } else if (!combined_fire && combined_fire_was_active) {
             event_t ev = {.type = ev_keyup, .data1 = key_fire};
             D_PostEvent(&ev);
-            ESP_LOGD(TAG, "Joy2 press: Fire UP");
+            ESP_LOGD(TAG, "Joystick press: Fire UP");
         }
+        joy1_fire_was_active = *joy1_fire;
         joy2_fire_was_active = *joy2_fire;
-
-        // Process Joy1 stick press as SPEED (run modifier on left stick)
-        bool *joy1_speed = &s_joystick_state.btn_left_stick;
-        static bool joy1_speed_was_active = false;
-        if (*joy1_speed && !joy1_speed_was_active) {
-            event_t ev = {.type = ev_keydown, .data1 = key_speed};
-            D_PostEvent(&ev);
-            ESP_LOGD(TAG, "Joy1 press: Speed DOWN");
-        } else if (!*joy1_speed && joy1_speed_was_active) {
-            event_t ev = {.type = ev_keyup, .data1 = key_speed};
-            D_PostEvent(&ev);
-            ESP_LOGD(TAG, "Joy1 press: Speed UP");
-        }
-        joy1_speed_was_active = *joy1_speed;
+        combined_fire_was_active = combined_fire;
 
         // Process buttons
         process_buttons();
 
         // Debug logging (every 2 seconds)
         if (now - last_log_time >= 2000) {
-            ESP_LOGI(TAG, "Joy1(Move): X=%d Y=%d | Joy2(Turn): X=%d Y=%d | Buttons: Use=%d Wpn=%d Esc=%d",
+            ESP_LOGI(TAG, "Joy1: X=%d Y=%d | Joy2: X=%d Y=%d | Buttons: Esc=%d Wpn=%d Use=%d Fire=%d",
                      s_joystick_state.joy1_x, s_joystick_state.joy1_y,
                      s_joystick_state.joy2_x, s_joystick_state.joy2_y,
-                     s_joystick_state.btn_right, s_joystick_state.btn_left,
-                     s_joystick_state.btn_builtin);
+                     s_joystick_state.btn_left, s_joystick_state.btn_right,
+                     s_joystick_state.btn_builtin, combined_fire);
             last_log_time = now;
         }
 
@@ -263,8 +259,9 @@ void atomInputInit(void) {
 
     s_initialized = true;
     lprintf(LO_INFO, "AtomS3R dual-stick controls initialized:\n");
-    lprintf(LO_INFO, "  Joy1: Move + Strafe | Joy2: Turn | Stick Buttons: Speed/Fire\n");
-    lprintf(LO_INFO, "  Face Buttons: Weapon/Use | GPIO 41: Escape\n");
+    lprintf(LO_INFO, "  Joy1: Move + Strafe | Joy2: Move + Strafe | Both Sticks Press: Fire\n");
+    lprintf(LO_INFO, "  Face Buttons: Escape (LEFT) / Weapon Change (RIGHT)\n");
+    lprintf(LO_INFO, "  GPIO 41: Use (Open Doors)\n");
 
     // Create joystick polling task
     xTaskCreatePinnedToCore(joystick_task, "atom_joy", 4096, NULL, 5, NULL, 0);
@@ -275,12 +272,12 @@ int atomJsInputGet(void) {
     // Return PS2-compatible bitmask for existing code
     int joy_val = 0xFFFF;
 
-    // Modern dual-stick mapping for PS2 compatibility
-    if (s_joystick_state.btn_right)       joy_val &= ~0x4000; // RIGHT button -> Use (Cross)
-    if (s_joystick_state.btn_left)        joy_val &= ~0x1000; // LEFT button -> Weapon (Triangle)
-    if (s_joystick_state.btn_right_stick) joy_val &= ~0x2000; // RIGHT_STICK -> Fire (Circle)
-    if (s_joystick_state.btn_left_stick)  joy_val &= ~0x100;  // LEFT_STICK -> Speed (L2)
-    if (s_joystick_state.btn_builtin)     joy_val &= ~0x8;    // GPIO 41 -> Escape (Start)
+    // Updated dual-stick mapping for PS2 compatibility
+    if (s_joystick_state.btn_left)        joy_val &= ~0x8;    // LEFT button -> Escape (Start)
+    if (s_joystick_state.btn_right)       joy_val &= ~0x1000; // RIGHT button -> Weapon (Triangle)
+    if (s_joystick_state.btn_left_stick || s_joystick_state.btn_right_stick)
+                                         joy_val &= ~0x2000; // Either stick press -> Fire (Circle)
+    if (s_joystick_state.btn_builtin)     joy_val &= ~0x4000; // GPIO 41 -> Use (Cross)
 
     // Map Joy1 (movement) to D-pad
     if (s_joystick_state.joy1_y < JOY_THRESHOLD_LOW)  joy_val &= ~0x10; // Forward -> UP
@@ -288,9 +285,9 @@ int atomJsInputGet(void) {
     if (s_joystick_state.joy1_x < JOY_THRESHOLD_LOW)  joy_val &= ~0x80; // Strafe Left -> LEFT
     if (s_joystick_state.joy1_x > JOY_THRESHOLD_HIGH) joy_val &= ~0x20; // Strafe Right -> RIGHT
 
-    // Map Joy2 (turning) to L1/R1 strafe buttons (repurposed for turning)
-    if (s_joystick_state.joy2_x < JOY_THRESHOLD_LOW)  joy_val &= ~0x400; // Turn Left -> L1
-    if (s_joystick_state.joy2_x > JOY_THRESHOLD_HIGH) joy_val &= ~0x800; // Turn Right -> R1
+    // Map Joy2 (movement + strafe) to L1/R1 (also strafe)
+    if (s_joystick_state.joy2_x < JOY_THRESHOLD_LOW)  joy_val &= ~0x400; // Strafe Left -> L1
+    if (s_joystick_state.joy2_x > JOY_THRESHOLD_HIGH) joy_val &= ~0x800; // Strafe Right -> R1
 
     return joy_val;
 }
