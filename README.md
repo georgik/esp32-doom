@@ -2,6 +2,20 @@
 
 This repository ports PrBoom, a Doom source port, to ESP32-S3 devices using ESP-IDF 6.x. This fork is adapted from the original Espressif [`esp32-doom`](https://github.com/espressif/esp32-doom) project and includes support for M5Stack AtomS3R hardware.
 
+## Recent Updates
+
+**Backlight Fix:**
+- Resolved missing display backlight on AtomS3R
+- Root cause: LP5562 LED driver requires I2C initialization before display init
+- Implemented proper LP5562 init sequence matching working Rust implementation
+- Hardware: ESP32 I2C (GPIO45/0) → LP5562 (0x30) → SGM2578 enable → backlight
+- Display now activates properly on power-up without dependency on previous Rust flash
+
+**Joystick Support (2026-04-15):**
+- StampFly joystick controller working via I2C
+- Uses separate I2C bus (I2C_NUM_1, GPIO38/39) to avoid conflicts with backlight
+- Independent I2C architecture prevents bus acquisition errors
+
 ## Status
 
 This is a working proof of concept that successfully runs Doom on ESP32-S3 hardware with PSRAM. The project has been tested and verified on M5Stack AtomS3R.
@@ -35,6 +49,31 @@ This fork includes significant modifications to support AtomS3R hardware and opt
 - **Increased mapping capacity**: Support for 64 concurrent memory mappings vs. previous 32-limit
 
 ### Display System
+
+#### Backlight Initialization (CRITICAL)
+AtomS3R display requires proper backlight initialization sequence before any content is visible:
+
+**Hardware Chain:**
+```
+ESP32 I2C (GPIO45/0) → LP5562 driver → SGM2578 enable pin → LCD backlight power
+```
+
+**Initialization Sequence (must complete BEFORE display init):**
+1. Initialize I2C master bus (I2C_NUM_0, GPIO45 SDA, GPIO0 SCL, 100kHz)
+2. Enable LP5562 internal clock (REG_CONFIG = 0x01, delay 1ms)
+3. Enable LP5562 chip (REG_ENABLE = 0x40, delay 500us)
+4. Configure LED map for I2C control (REG_LED_MAP = 0x00, delay 200us)
+5. Set PWM direct mode (REG_OP_MODE = 0x00, delay 200us)
+6. Set max brightness (REG_W_PWM = 0xFF)
+7. Set max current (REG_W_CURRENT = 0xFF)
+
+**Implementation Notes:**
+- LP5562 I2C address: 0x30
+- Uses ESP-IDF 6 I2C master driver (`i2c_master.h`)
+- Must complete before `esp_lcd_panel_init()` or display remains dark
+- Joystick uses separate I2C bus (I2C_NUM_1, GPIO38/39) to avoid conflicts
+
+#### Display Configuration
 - **GC9A01 display driver**: Implemented proper initialization for AtomS3R's 128x128 round TFT display
 - **Resolution scaling**: Added real-time downscaling from Doom's native 320x240 to AtomS3R's 128x128 display
 - **Correct GPIO pin mapping**: Configured for AtomS3R-specific pins (SCK=GPIO15, MOSI=GPIO21, CS=GPIO14, DC=GPIO42, RST=GPIO48)
@@ -105,7 +144,13 @@ Note: For 8MB flash devices (AtomS3R), ensure your WAD files fit within the part
 ## Controls
 
 ### AtomS3R Controls
-Currently, joystick input is disabled pending I2C hardware implementation. The game will start and display properly, but controls require further development.
+**Backlight Status:** WORKING (LP5562 I2C driver implemented)
+
+Display initializes with full brightness on power-up. Backlight activation is automatic via proper LP5562 initialization sequence before display init.
+
+**Joystick Status:** WORKING (StampFly controller via I2C)
+
+Joystick uses separate I2C bus (I2C_NUM_1, GPIO38/39) at address 0x59. Independent from backlight I2C bus (I2C_NUM_0, GPIO45/0) to prevent conflicts.
 
 ### ESP32-S3-BOX-3 Controls
 Touchscreen emulation:
@@ -126,7 +171,6 @@ left  right       shoot
 ## Known Limitations
 
 - Save/load functionality not implemented
-- AtomS3R joystick control pending I2C implementation
 - Audio not available on AtomS3R (disabled)
 - Display scaling results in small UI elements
 - No multiplayer or network functionality
@@ -150,15 +194,6 @@ left  right       shoot
 - Confirm partition table matches your flash size (8MB vs 16MB)
 - Verify WAD files are flashed to correct addresses
 - Check `flashwad.sh` uses addresses matching your partition table
-
-## Future Development
-
-- Implement AtomS3R joystick support via I2C
-- Add LP5562 I2C backlight control
-- Optimize display scaling performance
-- Add keyboard support via USB or Bluetooth
-- Support additional ESP32-S3 development boards
-- Implement save/load functionality
 
 ## Credits
 

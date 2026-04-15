@@ -13,12 +13,19 @@ static const char *TAG = "i2c_joystick";
 esp_err_t i2c_joystick_init(i2c_joystick_handle_t *stick) {
     esp_err_t ret;
 
+    // Joystick uses different I2C pins (GPIO 38/39) than backlight (GPIO 45/0)
+    // Must create separate I2C bus
+    ESP_LOGI(TAG, "Creating dedicated I2C bus for joystick (GPIO %d/%d)",
+             I2C_SDA_GPIO, I2C_SCL_GPIO);
+
     // I2C bus configuration
     i2c_master_bus_config_t bus_config = {
+        .i2c_port = I2C_NUM_1,  // Use I2C_NUM_1 for joystick (different from LCD I2C_NUM_0)
         .scl_io_num = I2C_SCL_GPIO,
         .sda_io_num = I2C_SDA_GPIO,
         .clk_source = I2C_CLK_SRC_DEFAULT,
         .glitch_ignore_cnt = 7,
+        .flags.enable_internal_pullup = true,
     };
 
     // Create I2C bus

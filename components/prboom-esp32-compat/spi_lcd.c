@@ -3,6 +3,7 @@
 #include <stdlib.h>
 #include "freertos/FreeRTOS.h"
 #include "freertos/semphr.h"
+#include "freertos/task.h"
 #include "esp_check.h"
 #include "esp_heap_caps.h"
 #include "esp_log.h"
@@ -10,6 +11,8 @@
 #include "esp_lcd_panel_io.h"
 #include "driver/gpio.h"
 #include "driver/spi_master.h"
+#include "driver/i2c_master.h"
+#include "esp_rom_sys.h"
 #include "esp_lcd_gc9a01.h"
 
 static const char *TAG = "doom_lcd";
@@ -18,6 +21,9 @@ static esp_lcd_panel_io_handle_t s_io_handle;
 static uint16_t *s_dma_buf;
 static SemaphoreHandle_t s_flush_done;
 extern int16_t lcdpal[256];
+
+// Shared I2C bus for LP5562 backlight and potential joystick
+static i2c_master_bus_handle_t s_i2c_bus = NULL;
 
 // AtomS3R display configuration (from Rust implementation)
 #define LCD_DMA_LINES 32
@@ -31,7 +37,20 @@ extern int16_t lcdpal[256];
 #define LCD_CS            GPIO_NUM_14
 #define LCD_DC            GPIO_NUM_42
 #define LCD_RST           GPIO_NUM_48
-#define LCD_BACKLIGHT     GPIO_NUM_16  // Simple GPIO fallback for now
+
+// LP5562 backlight driver I2C configuration
+#define LP5562_I2C_ADDR           0x30
+#define LP5562_I2C_REG_ENABLE     0x00
+#define LP5562_I2C_REG_OP_MODE    0x01
+#define LP5562_I2C_REG_W_PWM      0x0E
+#define LP5562_I2C_REG_W_CURRENT  0x0F
+#define LP5562_I2C_REG_CONFIG     0x08
+#define LP5562_I2C_REG_LED_MAP    0x70
+#define LP5562_I2C_MASTER_ENABLE  0x40
+
+#define I2C_SDA_PIN              GPIO_NUM_45
+#define I2C_SCL_PIN              GPIO_NUM_0
+
 
 static bool lcd_color_trans_done(esp_lcd_panel_io_handle_t panel_io,
                                  esp_lcd_panel_io_event_data_t *edata,
@@ -40,6 +59,105 @@ static bool lcd_color_trans_done(esp_lcd_panel_io_handle_t panel_io,
     BaseType_t high_task_wakeup = pdFALSE;
     xSemaphoreGiveFromISR(s_flush_done, &high_task_wakeup);
     return high_task_wakeup == pdTRUE;
+}
+
+// LP5562 backlight driver initialization (matching Rust implementation)
+static esp_err_t lp5562_init(void)
+{
+    esp_err_t ret;
+    i2c_master_dev_handle_t lp5562_handle;
+
+    ESP_LOGI(TAG, "Initializing LP5562 backlight driver via I2C (ESP-IDF 6)");
+
+    // Create I2C bus only once
+    if (s_i2c_bus == NULL) {
+        i2c_master_bus_config_t bus_config = {
+            .i2c_port = I2C_NUM_0,
+            .scl_io_num = I2C_SCL_PIN,
+            .sda_io_num = I2C_SDA_PIN,
+            .clk_source = I2C_CLK_SRC_DEFAULT,
+            .glitch_ignore_cnt = 7,
+            .flags.enable_internal_pullup = true,
+        };
+
+        ret = i2c_new_master_bus(&bus_config, &s_i2c_bus);
+        if (ret != ESP_OK) {
+            ESP_LOGE(TAG, "I2C master bus create failed: %s", esp_err_to_name(ret));
+            return ret;
+        }
+        ESP_LOGI(TAG, "I2C master bus created for LP5562 (I2C_NUM_0, GPIO %d/%d)",
+                 I2C_SCL_PIN, I2C_SDA_PIN);
+    } else {
+        ESP_LOGI(TAG, "Reusing existing I2C bus for LP5562");
+    }
+
+    // Configure LP5562 device
+    i2c_device_config_t lp5562_config = {
+        .dev_addr_length = I2C_ADDR_BIT_LEN_7,
+        .device_address = LP5562_I2C_ADDR,
+        .scl_speed_hz = 100000,
+    };
+
+    ret = i2c_master_bus_add_device(s_i2c_bus, &lp5562_config, &lp5562_handle);
+    if (ret != ESP_OK) {
+        ESP_LOGE(TAG, "I2C device add failed: %s", esp_err_to_name(ret));
+        return ret;
+    }
+
+    // Step 1: Enable internal clock
+    uint8_t config_data[] = {LP5562_I2C_REG_CONFIG, 0x01};
+    ret = i2c_master_transmit(lp5562_handle, config_data, sizeof(config_data), -1);
+    if (ret != ESP_OK) {
+        ESP_LOGE(TAG, "LP5562 clock enable failed: %s", esp_err_to_name(ret));
+        return ret;
+    }
+    vTaskDelay(pdMS_TO_TICKS(1));
+
+    // Step 2: Enable chip
+    uint8_t enable_data[] = {LP5562_I2C_REG_ENABLE, LP5562_I2C_MASTER_ENABLE};
+    ret = i2c_master_transmit(lp5562_handle, enable_data, sizeof(enable_data), -1);
+    if (ret != ESP_OK) {
+        ESP_LOGE(TAG, "LP5562 chip enable failed: %s", esp_err_to_name(ret));
+        return ret;
+    }
+    esp_rom_delay_us(500);
+
+    // Step 3: Configure LED map - all LEDs controlled from I2C registers
+    uint8_t ledmap_data[] = {LP5562_I2C_REG_LED_MAP, 0x00};
+    ret = i2c_master_transmit(lp5562_handle, ledmap_data, sizeof(ledmap_data), -1);
+    if (ret != ESP_OK) {
+        ESP_LOGE(TAG, "LP5562 LED map config failed: %s", esp_err_to_name(ret));
+        return ret;
+    }
+    esp_rom_delay_us(200);
+
+    // Step 4: Set operation mode to direct PWM control
+    uint8_t opmode_data[] = {LP5562_I2C_REG_OP_MODE, 0x00};
+    ret = i2c_master_transmit(lp5562_handle, opmode_data, sizeof(opmode_data), -1);
+    if (ret != ESP_OK) {
+        ESP_LOGE(TAG, "LP5562 op mode set failed: %s", esp_err_to_name(ret));
+        return ret;
+    }
+    esp_rom_delay_us(200);
+
+    // Step 5: Set PWM brightness to maximum (255)
+    uint8_t pwm_data[] = {LP5562_I2C_REG_W_PWM, 0xFF};
+    ret = i2c_master_transmit(lp5562_handle, pwm_data, sizeof(pwm_data), -1);
+    if (ret != ESP_OK) {
+        ESP_LOGE(TAG, "LP5562 PWM brightness set failed: %s", esp_err_to_name(ret));
+        return ret;
+    }
+
+    // Step 6: Set current to maximum
+    uint8_t current_data[] = {LP5562_I2C_REG_W_CURRENT, 0xFF};
+    ret = i2c_master_transmit(lp5562_handle, current_data, sizeof(current_data), -1);
+    if (ret != ESP_OK) {
+        ESP_LOGE(TAG, "LP5562 current set failed: %s", esp_err_to_name(ret));
+        return ret;
+    }
+
+    ESP_LOGI(TAG, "LP5562 backlight initialized at full brightness (ESP-IDF 6 I2C master driver)");
+    return ESP_OK;
 }
 
 void spi_lcd_wait_finish(void)
@@ -103,6 +221,13 @@ void spi_lcd_init(void)
     esp_err_t ret;
 
     ESP_LOGI(TAG, "Initializing AtomS3R display with proper configuration");
+
+    // Initialize LP5562 backlight FIRST (required for display visibility)
+    ret = lp5562_init();
+    if (ret != ESP_OK) {
+        ESP_LOGE(TAG, "Failed to initialize LP5562 backlight: %s", esp_err_to_name(ret));
+        // Continue anyway - display might still work with previous state
+    }
 
     // Initialize SPI bus with AtomS3R pins (from Conway implementation)
     spi_bus_config_t buscfg = {
@@ -171,17 +296,6 @@ void spi_lcd_init(void)
     ESP_ERROR_CHECK(esp_lcd_panel_mirror(s_panel, true, true));  // Mirror both axes
 
     ESP_ERROR_CHECK(esp_lcd_panel_disp_on_off(s_panel, true));
-
-    // Simple GPIO backlight control for now (will implement LP5562 later)
-    gpio_config_t gpio_conf = {
-        .pin_bit_mask = (1ULL << LCD_BACKLIGHT),
-        .mode = GPIO_MODE_OUTPUT,
-        .pull_up_en = GPIO_PULLUP_DISABLE,
-        .pull_down_en = GPIO_PULLDOWN_DISABLE,
-        .intr_type = GPIO_INTR_DISABLE,
-    };
-    gpio_config(&gpio_conf);
-    gpio_set_level(LCD_BACKLIGHT, 1);  // Turn on backlight
 
     ESP_LOGI(TAG, "AtomS3R display initialized properly (GC9A01 driver, 128x128)");
 }
