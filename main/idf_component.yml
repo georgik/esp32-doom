@@ -2,8 +2,8 @@
 ## M5Stack AtomS3 build
 dependencies:
   espressif/m5_atom_s3:
-    version: "^1.0.2"
-    override_path: "/Users/georgik/projects/esp-bsp/bsp/m5_atom_s3"
+    version: ^1.0.2
+    override_path: /Users/georgik/projects/esp-bsp/bsp/m5_atom_s3
   ## Required IDF version
   idf:
-    version: ">=6.0.0"
+    version: '>=6.0.0'

@@ -48,6 +48,9 @@ typedef struct {
     bool btn_left_stick;     // Left joystick press (Fire)
     bool btn_right_stick;    // Right joystick press (Fire)
     bool btn_builtin;        // GPIO 41 built-in (Use)
+    bool btn_left_last;      // Previous value of LEFT button for debouncing
+    bool btn_right_last;     // Previous value of RIGHT button for debouncing
+    bool btn_builtin_last;   // Previous value of builtin button for debouncing
 } atom_joystick_state_t;
 
 static atom_joystick_state_t s_joystick_state = {0};
@@ -59,17 +62,45 @@ static atom_joystick_state_t s_prev_joystick_state = {0};
 
 // Button to Doom key mapping (Optimized for dual-stick Doom gameplay)
 typedef struct {
-    bool *button_state;
-    bool *prev_state;
+    bool *button_state;     // Current button state
+    bool *prev_state;       // Previously registered state (for Doom events)
+    bool *last_state;       // Last read state (for debouncing)
     int *doom_key;
     const char *name;
+    int debounce_count;     // Debounce counter (number of stable polls required)
+    int current_count;      // Current debounce count
 } button_map_t;
 
 static button_map_t s_button_map[] = {
     // Note: LEFT_STICK and RIGHT_STICK are handled separately as Fire
-    {&s_joystick_state.btn_left,        &s_prev_joystick_state.btn_left,        &key_escape,       "Escape"},        // LEFT button → Escape (menu)
-    {&s_joystick_state.btn_right,       &s_prev_joystick_state.btn_right,       &key_weapontoggle, "Weapon"},        // RIGHT button → Weapon Change
-    {&s_joystick_state.btn_builtin,     &s_prev_joystick_state.btn_builtin,     &key_use,          "Use"},           // GPIO 41 → Use (open doors)
+    // debounce_count: number of stable polls (at 50Hz) before registering button press
+    {
+        &s_joystick_state.btn_left,        // button_state
+        &s_prev_joystick_state.btn_left,   // prev_state
+        &s_joystick_state.btn_left_last,   // last_state
+        &key_escape,                       // doom_key
+        "Escape",                          // name
+        5,                                 // debounce_count
+        0                                  // current_count
+    },
+    {
+        &s_joystick_state.btn_right,       // button_state
+        &s_prev_joystick_state.btn_right,  // prev_state
+        &s_joystick_state.btn_right_last,  // last_state
+        &key_weapontoggle,                 // doom_key
+        "Weapon",                          // name
+        3,                                 // debounce_count
+        0                                  // current_count
+    },
+    {
+        &s_joystick_state.btn_builtin,     // button_state
+        &s_prev_joystick_state.btn_builtin,// prev_state
+        &s_joystick_state.btn_builtin_last,// last_state
+        &key_use,                          // doom_key
+        "Use",                             // name
+        2,                                 // debounce_count
+        0                                  // current_count
+    },
 };
 
 #define NUM_BUTTONS (sizeof(s_button_map) / sizeof(s_button_map[0]))
@@ -114,15 +145,31 @@ static void process_joystick_axis(int value, bool is_up_left, int *doom_key, boo
     *was_active = is_active;
 }
 
-// Process button state changes
+// Process button state changes with debouncing
 static void process_buttons(void) {
     for (int i = 0; i < NUM_BUTTONS; i++) {
         bool *current = s_button_map[i].button_state;
         bool *prev = s_button_map[i].prev_state;
+        bool *last = s_button_map[i].last_state;
         int *doom_key = s_button_map[i].doom_key;
         const char *name = s_button_map[i].name;
+        int *debounce_count = &s_button_map[i].debounce_count;
+        int *current_count = &s_button_map[i].current_count;
 
-        if (*current != *prev) {
+        // Check if button state changed from last read (detect bouncing)
+        if (*current != *last) {
+            // State changed, reset debounce counter
+            *current_count = 0;
+        } else {
+            // State is stable, increment counter
+            if (*current_count < *debounce_count) {
+                (*current_count)++;
+            }
+        }
+
+        // Only register event after debounce period and when state differs from previously registered
+        if (*current_count == *debounce_count && *current != *prev) {
+            // Button has been stable for debounce period, register the event
             *prev = *current;
 
             event_t ev = {
@@ -131,7 +178,7 @@ static void process_buttons(void) {
             };
             D_PostEvent(&ev);
 
-            ESP_LOGD(TAG, "Button %s: %s", name, *current ? "DOWN" : "UP");
+            ESP_LOGD(TAG, "Button %s: %s (debounced %d polls)", name, *current ? "DOWN" : "UP", *debounce_count);
         }
     }
 }
@@ -159,11 +206,14 @@ static void update_joystick_state(void) {
     ret = i2c_joystick_read_axis(&s_joystick_handle, JOY2_Y_REG, &joy2_y);
     if (ret != ESP_OK) joy2_y = 2048; // Center on error
 
-    // Update state
+    // Update state (save previous button values for debouncing)
     s_joystick_state.joy1_x = joy1_x;
     s_joystick_state.joy1_y = joy1_y;
     s_joystick_state.joy2_x = joy2_x;
     s_joystick_state.joy2_y = joy2_y;
+    s_joystick_state.btn_left_last = s_joystick_state.btn_left;
+    s_joystick_state.btn_right_last = s_joystick_state.btn_right;
+    s_joystick_state.btn_builtin_last = s_joystick_state.btn_builtin;
     s_joystick_state.btn_left = btn_left;
     s_joystick_state.btn_right = btn_right;
     s_joystick_state.btn_left_stick = btn_left_stick;

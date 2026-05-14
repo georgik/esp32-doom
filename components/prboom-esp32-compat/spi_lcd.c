@@ -174,6 +174,36 @@ void spi_lcd_invalidate(void)
 {
 }
 
+// Display loading screen (dark green background)
+static void spi_lcd_show_loading_screen(void)
+{
+    if (s_panel == NULL || s_dma_buf == NULL) {
+        return;
+    }
+
+    ESP_LOGI(TAG, "Displaying loading screen...");
+
+    // RGB565 dark green color
+    const uint16_t DARK_GREEN = 0x03E0;  // Dark green background
+
+    // Fill screen with dark green
+    for (int y = 0; y < LCD_V_RES; y += LCD_DMA_LINES) {
+        const int lines = (LCD_DMA_LINES < (LCD_V_RES - y)) ? LCD_DMA_LINES : (LCD_V_RES - y);
+        const size_t pixels = LCD_H_RES * lines;
+
+        // Fill with dark green background
+        for (int i = 0; i < pixels; i++) {
+            s_dma_buf[i] = DARK_GREEN;
+        }
+
+        // Send this chunk to the display
+        esp_lcd_panel_draw_bitmap(s_panel, 0, y, LCD_H_RES, y + lines, s_dma_buf);
+        xSemaphoreTake(s_flush_done, portMAX_DELAY);
+    }
+
+    ESP_LOGI(TAG, "Loading screen displayed (dark green)");
+}
+
 void spi_lcd_send(const uint8_t *scr)
 {
     if (s_panel == NULL) {
@@ -298,4 +328,7 @@ void spi_lcd_init(void)
     ESP_ERROR_CHECK(esp_lcd_panel_disp_on_off(s_panel, true));
 
     ESP_LOGI(TAG, "AtomS3R display initialized properly (GC9A01 driver, 128x128)");
+
+    // Display loading screen immediately to clear any previous noise
+    spi_lcd_show_loading_screen();
 }

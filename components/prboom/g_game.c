@@ -2002,6 +2002,10 @@ void G_ReloadDefaults(void)
   if (startskill==sk_none)
     startskill = (skill_t)(defaultskill-1);
 
+  // Fallback: if defaultskill wasn't initialized, use medium skill
+  if (startskill==sk_none || startskill < 0)
+    startskill = sk_medium;
+
   demoplayback = false;
   singledemo = false;            // killough 9/29/98: don't stop after 1 demo
   netdemo = false;

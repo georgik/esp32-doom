@@ -5,6 +5,7 @@
 // You may obtain a copy of the License at
 
 //     http://www.apache.org/licenses/LICENSE-2.0
+
 //
 // Unless required by applicable law or agreed to in writing, software
 // distributed under the License is distributed on an "AS IS" BASIS,
@@ -21,26 +22,43 @@
 #include "i_system.h"
 
 #include "spi_lcd.h"
+#include "doom_espnow.h"
+#include "doom_espnow_server.h"
 
 
 extern void jsInit();
+
+// Global to store multiplayer role
+static int g_player_num = 0;
+static bool g_multiplayer = false;
 
 
 void doomEngineTask(void *pvParameters)
 {
     printf("Doom engine task started...\n");
+    printf("Player num: %d, Multiplayer: %s\n", g_player_num, g_multiplayer ? "yes" : "no");
 
-    // Test if task is running properly before calling doom_main
-    for (int i = 0; i < 5; i++) {
-        printf("Doom task test loop %d...\n", i);
-        vTaskDelay(pdMS_TO_TICKS(500));
-    }
+    // Initialize Doom server
+    doom_server_config_t config = {
+        .skill = 3,
+        .episode = 1,
+        .level = 1,
+        .deathmatch = 0,
+        .num_players = g_multiplayer ? 2 : 1
+    };
+    doom_server_init(&config);
 
-    printf("About to start doom_main...\n");
+    // Build command line args
+    // For true multiplayer, we'd use -net <address>, but for ESP-NOW we use -solo-net
+    // which enables netgame features without requiring a separate server
+    char const *argv[]={"doom","-cout","ICWEFDA","-skill","3","-warp","1","-solo-net", NULL};
+    int argc = 8;
 
-    char const *argv[]={"doom","-cout","ICWEFDA", NULL};
-    printf("Calling doom_main with args: %s %s %s\n", argv[0], argv[1], argv[2]);
-    doom_main(3, argv);
+    printf("Calling doom_main with args: ");
+    for (int i = 0; i < argc-1; i++) printf("%s ", argv[i]);
+    printf("\n");
+
+    doom_main(argc, argv);
 
     printf("Doom engine exited!\n");
 }
@@ -78,16 +96,39 @@ void app_main()
 	jsInit();
 	printf("Joystick initialization completed\n");
 
+	// ESP-NOW Auto-Discovery for Multiplayer
+	printf("\n=== ESP-NOW Multiplayer Setup ===\n");
+	printf("Turn on BOTH devices within 30 seconds\n");
+	printf("First device = HOST (Player 1)\n");
+	printf("Second device = CLIENT (Player 2)\n");
+
+	int role = doom_espnow_setup();
+
+	if (role < 0) {
+		printf("ESP-NOW setup failed! Starting single player...\n");
+		g_player_num = 0;
+		g_multiplayer = false;
+	} else {
+		printf("\n=== Setup Complete! ===\n");
+		printf("Role: %s\n", role == 0 ? "HOST (Player 1)" : "CLIENT (Player 2)");
+		g_player_num = role;
+		g_multiplayer = doom_espnow_is_multiplayer();
+
+		if (g_multiplayer) {
+			printf("\n*** MULTIPLAYER MODE: 2 PLAYERS ***\n");
+		} else {
+			printf("\n*** SINGLE PLAYER MODE ***\n");
+		}
+	}
+
 	// Disable task watchdog temporarily for AtomS3R compatibility
-	// The Doom engine initialization can take longer than the watchdog timeout
 	printf("Disabling task watchdog...\n");
 	esp_task_wdt_deinit();
 	printf("Task watchdog disabled\n");
 
-	printf("Starting Doom engine with increased stack and watchdog disabled...\n");
+	printf("Starting Doom engine...\n");
 
 	// Increase task stack size for AtomS3R compatibility
-	// The PSRAM operations might require more stack space
 	printf("Creating Doom engine task...\n");
 	TaskHandle_t doom_task_handle = NULL;
 	BaseType_t result = xTaskCreatePinnedToCore(&doomEngineTask, "doomEngine", 32768, NULL, 5, &doom_task_handle, 0);
@@ -103,6 +144,5 @@ void app_main()
 	// Keep app_main alive to monitor the doom task
 	while(1) {
 		vTaskDelay(pdMS_TO_TICKS(1000));
-		printf("Doom task is running...\n");
 	}
 }
