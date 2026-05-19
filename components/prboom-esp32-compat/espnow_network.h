@@ -41,6 +41,10 @@ esp_err_t doom_espnow_send(const uint8_t *dest_addr, const void *data, size_t le
 // Returns bytes received or -1 on timeout/error
 int doom_espnow_recv(uint8_t *src_addr, void *data, size_t max_len, int timeout_ms);
 
+// Peek at packet type without consuming from queue
+// Returns packet type or -1 if no packet
+int doom_espnow_peek_type(void);
+
 // Check if data is available
 bool doom_espnow_data_available(void);
 
@@ -61,6 +65,17 @@ esp_err_t doom_espnow_join_game(const uint8_t *host_addr);
 
 // Check if initialized
 bool doom_espnow_is_initialized(void);
+
+// Get ESP-NOW statistics
+void doom_espnow_get_stats(int *tx_count, int *rx_count, int *dropped_count);
+
+// Check if TX is busy (previous send not completed)
+bool doom_espnow_tx_busy(void);
+
+// Send ticcmd packet to specific player
+// ticcmd_t is defined in d_ticcmd.h - include that before this header
+esp_err_t doom_espnow_send_tics(int player_num, uint32_t start_tic,
+                                const void *tics, int count);
 
 #ifdef __cplusplus
 }

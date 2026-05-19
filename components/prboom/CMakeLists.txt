@@ -82,6 +82,7 @@ INCLUDE_DIRS
 PRIV_REQUIRES
   prboom-wad-tables
   prboom-imfs
+  prboom-esp32-compat
 )
 
 target_compile_options(${COMPONENT_LIB} PUBLIC -std=gnu11)

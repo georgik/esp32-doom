@@ -323,11 +323,11 @@ int atomJsInputGet(void) {
     int joy_val = 0xFFFF;
 
     // Updated dual-stick mapping for PS2 compatibility
-    if (s_joystick_state.btn_left)        joy_val &= ~0x8;    // LEFT button -> Escape (Start)
+    if (s_joystick_state.btn_left)        joy_val &= ~0x4000; // LEFT button -> Use/Open (Cross)
     if (s_joystick_state.btn_right)       joy_val &= ~0x1000; // RIGHT button -> Weapon (Triangle)
     if (s_joystick_state.btn_left_stick || s_joystick_state.btn_right_stick)
                                          joy_val &= ~0x2000; // Either stick press -> Fire (Circle)
-    if (s_joystick_state.btn_builtin)     joy_val &= ~0x4000; // GPIO 41 -> Use (Cross)
+    if (s_joystick_state.btn_builtin)     joy_val &= ~0x8;    // GPIO 41 -> Escape (Start)
 
     // Map Joy1 (movement) to D-pad
     if (s_joystick_state.joy1_y < JOY_THRESHOLD_LOW)  joy_val &= ~0x10; // Forward -> UP

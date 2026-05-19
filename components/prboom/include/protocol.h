@@ -47,6 +47,7 @@ enum packet_type_e {
   PKT_DOWN,    // Server downed
   PKT_WAD,     // Wad file request
   PKT_BACKOFF, // Request for client back-off
+  PKT_ACK,     // ESP-NOW acknowledgment (non-standard)
 };
 
 typedef struct {

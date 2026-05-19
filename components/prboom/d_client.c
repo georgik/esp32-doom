@@ -70,6 +70,11 @@
 #include "r_fps.h"
 #include "lprintf.h"
 
+#ifdef ESP_PLATFORM
+#include "doom_espnow.h"
+#include "esp_log.h"
+#endif
+
 static boolean   server;
 static int       remotetic; // Tic expected from the remote
 static int       remotesend; // Tic expected by the remote
@@ -98,6 +103,37 @@ void D_InitNetGame (void)
 {
   int i;
   int numplayers = 1;
+
+#ifdef ESP_PLATFORM
+  lprintf(LO_INFO, "ESP-NOW: D_InitNetGame reached\n");
+#endif
+
+  // Check if ESP-NOW multiplayer is already set up
+  #ifdef ESP_PLATFORM
+  extern bool doom_espnow_is_multiplayer(void);
+  extern int doom_espnow_get_player_num(void);
+  extern bool doom_espnow_is_host(void);
+
+  bool mp = doom_espnow_is_multiplayer();
+  int pn = doom_espnow_get_player_num();
+  lprintf(LO_INFO, "ESP-NOW: multiplayer=%d player=%d\n", mp, pn+1);
+
+  if (mp) {
+    // ESP-NOW is already configured - use it directly
+    lprintf(LO_INFO, "D_InitNetGame: Using ESP-NOW multiplayer setup\n");
+    netgame = true;
+    server = doom_espnow_is_host();
+    consoleplayer = doom_espnow_get_player_num();
+    numplayers = 2;
+    playeringame[0] = true;
+    playeringame[1] = true;
+    displayplayer = consoleplayer;
+    localcmds = netcmds[displayplayer];
+    lprintf(LO_INFO, "\tESP-NOW multiplayer: player %d/%d, is_server=%d\n",
+            consoleplayer+1, numplayers, server);
+    return;
+  }
+  #endif
 
   i = M_CheckParm("-net");
   if (i && i < myargc-1) i++;
@@ -272,7 +308,8 @@ void NetUpdate(void)
   static int lastmadetic;
   if (isExtraDDisplay)
     return;
-  if (server) { // Receive network packets
+  // Receive network packets (server or ESP-NOW P2P mode)
+  if (server || (netgame && doom_espnow_is_multiplayer())) { // Receive network packets
     size_t recvlen;
     packet_header_t *packet = Z_Malloc(10000, PU_STATIC, NULL);
     while ((recvlen = I_GetPacket(packet, 10000))) {
@@ -345,7 +382,8 @@ void NetUpdate(void)
       G_BuildTiccmd(&localcmds[maketic%BACKUPTICS]);
       maketic++;
     }
-    if (server && maketic > remotesend) { // Send the tics to the server
+    // Send tics if server OR if ESP-NOW multiplayer (P2P mode)
+    if ((server || (netgame && doom_espnow_is_multiplayer())) && maketic > remotesend) { // Send the tics to the server
       int sendtics;
       remotesend -= xtratics;
       if (remotesend < 0) remotesend = 0;

@@ -19,14 +19,15 @@
 #include "protocol.h"
 #include "i_network.h"
 #include "lprintf.h"
-#include "espnow_network.h"
 #include "esp_log.h"
+#include "doom_espnow_server.h"
+#include "doom_espnow.h"
+#include "espnow_network.h"
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
 
 static const char *TAG = "doom_net";
 
-#define DOOM_NET_PORT 5029
 #define MAX_PLAYERS 4
 
 typedef struct {
@@ -39,6 +40,9 @@ static player_channel_t g_players[MAX_PLAYERS];
 static int g_my_player_num = 0;
 static bool g_network_initialized = false;
 static bool g_is_server = false;
+
+// Sequence number tracking for duplicate detection
+static uint16_t g_last_seen_seq[MAX_PLAYERS] = {0};
 
 // UDP_CHANNEL maps to player index for ESP-NOW
 typedef int UDP_CHANNEL;
@@ -59,8 +63,7 @@ void I_InitNetwork(void)
 
     ESP_LOGI(TAG, "Initializing ESP-NOW network...");
 
-    // Default to client mode
-    g_is_server = false;
+    g_is_server = doom_espnow_is_host();
 
     esp_err_t ret = doom_espnow_init(g_is_server);
     if (ret != ESP_OK) {
@@ -74,10 +77,34 @@ void I_InitNetwork(void)
         g_players[i].active = false;
     }
 
+    g_my_player_num = doom_espnow_get_player_num();
+
+    // Get player info from ESP-NOW state
+    const espnow_state_t *espnow_state = doom_espnow_get_state();
+    if (espnow_state) {
+        ESP_LOGI(TAG, "ESP-NOW state: num_players=%d", espnow_state->num_players);
+        for (int i = 0; i < espnow_state->num_players && i < MAX_PLAYERS; i++) {
+            if (espnow_state->players[i].connected) {
+                g_players[i].active = true;
+                g_players[i].player_num = i;
+                memcpy(g_players[i].mac_addr, espnow_state->players[i].addr, 6);
+                ESP_LOGI(TAG, "Player %d: %02x:%02x:%02x:%02x:%02x:%02x",
+                         i, g_players[i].mac_addr[0], g_players[i].mac_addr[1],
+                         g_players[i].mac_addr[2], g_players[i].mac_addr[3],
+                         g_players[i].mac_addr[4], g_players[i].mac_addr[5]);
+            }
+        }
+    } else {
+        // Fallback if ESP-NOW state not available
+        g_players[0].active = true;
+        g_players[0].player_num = 0;
+        if (doom_espnow_is_multiplayer()) {
+            g_players[1].active = true;
+            g_players[1].player_num = 1;
+        }
+    }
+
     g_network_initialized = true;
-    g_my_player_num = g_is_server ? 0 : 1;
-    g_players[0].active = true;
-    g_players[0].player_num = 0;
 
     ESP_LOGI(TAG, "Network initialized, I am player %d", g_my_player_num);
 }
@@ -142,8 +169,8 @@ int I_ConnectToServer(const char *serv)
         I_InitNetwork();
     }
 
-    // Start discovery
-    doom_espnow_start_discovery();
+    // Send init packet
+    doom_client_send_init();
 
     return 1;
 }
@@ -174,7 +201,12 @@ void I_FreePacket(UDP_PACKET *packet)
 
 void I_WaitForPacket(int ms)
 {
-    vTaskDelay(pdMS_TO_TICKS(ms));
+    // Process server ticks while waiting
+    doom_server_tick();
+
+    if (ms > 0) {
+        vTaskDelay(pdMS_TO_TICKS(ms));
+    }
 }
 
 static byte ChecksumPacket(const packet_header_t* buffer, size_t len)
@@ -195,12 +227,44 @@ size_t I_GetPacket(packet_header_t* buffer, size_t buflen)
 {
     if (!g_network_initialized) return 0;
 
+    // Process server ticks first
+    doom_server_tick();
+
     // Check for received packets via ESP-NOW
     uint8_t src_addr[6];
     int len = doom_espnow_recv(src_addr, buffer, buflen, 0);
 
+    static int call_count = 0;
+    if ((call_count++ % 50) == 0) {  // Log every 50 calls (more frequent)
+        ESP_LOGI(TAG, "I_GetPacket: calls=%d, last_len=%d", call_count, len);
+    }
+
     if (len > 0) {
         recvdbytes += len;
+
+        ESP_LOGI(TAG, "I_GetPacket: got %d bytes, type=%d", len, buffer->type);
+
+        // Duplicate detection for tic packets (PKT_TICC)
+        // New packet format includes seq_num after player_num
+        if (len >= sizeof(packet_header_t) + 4) {  // header + sendtics + player_num + seq_num(2)
+            if (buffer->type == PKT_TICC) {
+                const byte *data = (const byte*)buffer;
+                byte player_num = data[sizeof(packet_header_t) + 1];  // After sendtics
+                uint16_t seq_num = *(const uint16_t*)(data + sizeof(packet_header_t) + 2);  // After player_num
+
+                // Check for duplicate (using wrapping comparison)
+                if (g_players[player_num].active) {
+                    int16_t seq_delta = (int16_t)(seq_num - g_last_seen_seq[player_num]);
+                    if (seq_delta <= 0 && g_last_seen_seq[player_num] != 0) {
+                        // Old or duplicate packet
+                        ESP_LOGW(TAG, "Dropping duplicate packet: player=%d seq=%u (last=%u)",
+                                 player_num, seq_num, g_last_seen_seq[player_num]);
+                        return 0;
+                    }
+                    g_last_seen_seq[player_num] = seq_num;
+                }
+            }
+        }
 
         // Find which player sent this
         for (int i = 0; i < MAX_PLAYERS; i++) {
@@ -211,7 +275,7 @@ size_t I_GetPacket(packet_header_t* buffer, size_t buflen)
             }
         }
 
-        ESP_LOGD(TAG, "Got %d bytes from player %d", len, sentfrom);
+        ESP_LOGI(TAG, "I_GetPacket: from player %d", sentfrom);
         return len;
     }
 

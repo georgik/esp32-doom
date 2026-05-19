@@ -19,12 +19,14 @@
 #include "esp_partition.h"
 #include "esp_system.h"
 #include "esp_task_wdt.h"
+#include "esp_log.h"
 #include "i_system.h"
 
 #include "spi_lcd.h"
 #include "doom_espnow.h"
 #include "doom_espnow_server.h"
 
+static const char *TAG = "app_main";
 
 extern void jsInit();
 
@@ -33,24 +35,35 @@ static int g_player_num = 0;
 static bool g_multiplayer = false;
 
 
+// Network tick task - handles ESP-NOW packets during game
+void networkTickTask(void *pvParameters) {
+    ESP_LOGI("doom_net", "Network tick task started");
+
+    while (1) {
+        doom_server_tick();
+        vTaskDelay(pdMS_TO_TICKS(10));  // 100Hz network tick
+    }
+}
+
+
 void doomEngineTask(void *pvParameters)
 {
     printf("Doom engine task started...\n");
-    printf("Player num: %d, Multiplayer: %s\n", g_player_num, g_multiplayer ? "yes" : "no");
+    printf("Player num: %d, Multiplayer: %s, is_host: %d\n",
+           g_player_num, g_multiplayer ? "yes" : "no", doom_espnow_is_host());
 
-    // Initialize Doom server
-    doom_server_config_t config = {
-        .skill = 3,
-        .episode = 1,
-        .level = 1,
-        .deathmatch = 0,
-        .num_players = g_multiplayer ? 2 : 1
-    };
-    doom_server_init(&config);
+    // If client, send init packet to server
+    if (!doom_espnow_is_host() && g_multiplayer) {
+        printf("*** CLIENT MODE: Sending PKT_INIT to server ***\n");
+        doom_client_send_init();
+        // Don't block - networkTickTask will receive SETUP+GO packets
+    } else {
+        printf("*** %s MODE: Not sending PKT_INIT ***\n",
+               doom_espnow_is_host() ? "SERVER" : "SINGLE PLAYER");
+    }
 
     // Build command line args
-    // For true multiplayer, we'd use -net <address>, but for ESP-NOW we use -solo-net
-    // which enables netgame features without requiring a separate server
+    // Use -solo-net for multiplayer mode (enables netgame without separate server)
     char const *argv[]={"doom","-cout","ICWEFDA","-skill","3","-warp","1","-solo-net", NULL};
     int argc = 8;
 
@@ -121,25 +134,47 @@ void app_main()
 		}
 	}
 
+	// Initialize Doom server state before starting tasks
+	if (g_multiplayer) {
+		doom_server_config_t config = {
+			.skill = 3,
+			.episode = 1,
+			.level = 1,
+			.deathmatch = 0,
+			.num_players = 2
+		};
+		printf("Initializing Doom server state (is_host=%d)...\n", doom_espnow_is_host());
+		doom_server_init(&config);
+		printf("Doom server init complete\n");
+	}
+
 	// Disable task watchdog temporarily for AtomS3R compatibility
 	printf("Disabling task watchdog...\n");
 	esp_task_wdt_deinit();
 	printf("Task watchdog disabled\n");
 
-	printf("Starting Doom engine...\n");
-
-	// Increase task stack size for AtomS3R compatibility
-	printf("Creating Doom engine task...\n");
-	TaskHandle_t doom_task_handle = NULL;
-	BaseType_t result = xTaskCreatePinnedToCore(&doomEngineTask, "doomEngine", 32768, NULL, 5, &doom_task_handle, 0);
-
-	if (result == pdPASS) {
-		printf("Doom engine task created successfully\n");
-	} else {
-		printf("Failed to create Doom engine task!\n");
+	// Start network tick task for multiplayer
+	if (g_multiplayer) {
+		ESP_LOGI(TAG, "Starting network tick task...");
+		TaskHandle_t net_task_handle = NULL;
+		BaseType_t ret = xTaskCreatePinnedToCore(&networkTickTask, "netTick", 2048, NULL, 6, &net_task_handle, 0);
+		ESP_LOGI(TAG, "Network tick task: %s", ret == pdPASS ? "OK" : "FAIL");
 	}
 
-	printf("app_main() completed, Doom task should be running\n");
+	ESP_LOGI(TAG, "Starting Doom engine...");
+
+	// Increase task stack size for AtomS3R compatibility
+	ESP_LOGI(TAG, "Creating Doom engine task...");
+	TaskHandle_t doom_task_handle = NULL;
+	BaseType_t result = xTaskCreatePinnedToCore(&doomEngineTask, "doomEngine", 28672, NULL, 2, &doom_task_handle, 1);  // Reduced from 32K
+
+	if (result == pdPASS) {
+		ESP_LOGI(TAG, "Doom engine task created successfully");
+	} else {
+		ESP_LOGE(TAG, "Failed to create Doom engine task!");
+	}
+
+	ESP_LOGI(TAG, "app_main() completed, Doom task should be running");
 
 	// Keep app_main alive to monitor the doom task
 	while(1) {
