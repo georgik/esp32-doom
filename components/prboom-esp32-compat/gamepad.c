@@ -46,24 +46,22 @@ typedef struct {
 
 //Mappings from PS2 buttons to keys
 static const JsKeyMap keymap[]={
-	{0x10, &key_up},
-	{0x40, &key_down},
-	{0x80, &key_left},
-	{0x20, &key_right},
-	
-	{0x4000, &key_use},				//cross
-	{0x2000, &key_fire},			//circle
-	{0x2000, &key_menu_enter},		//circle
-	{0x8000, &key_pause},			//square
-	{0x1000, &key_weapontoggle},	//triangle
+	{BUT_UP, &key_up},
+	{BUT_DOWN, &key_down},
+	{BUT_LEFT, &key_left},
+	{BUT_RIGHT, &key_right},
 
-	{0x8, &key_escape},				//start
-	{0x1, &key_map},				//select
-	
-	{0x400, &key_strafeleft},		//L1
-	{0x100, &key_speed},			//L2
-	{0x800, &key_straferight},		//R1
-	{0x200, &key_strafe},			//R2
+	{BUT_CIRCLE, &key_fire},              //fire
+	{BUT_CROSS, &key_use},                //use/interact
+	{BUT_CIRCLE, &key_menu_enter},        //fire also enters menus
+	{BUT_SQUARE, &key_pause},             //pause/menu/save
+	{BUT_TRIANGLE, &key_weapontoggle},    //weapon switch
+
+	{BUT_START, &key_escape},             //main menu/escape
+	{BUT_SELECT, &key_map},               //map toggle
+
+	{BUT_L1, &key_strafeleft},            //L1 - strafe left
+	{BUT_R1, &key_straferight},           //R1 - strafe right
 
 	{0, NULL},
 };

@@ -13,6 +13,7 @@ static const char *TAG = "audio";
 static SemaphoreHandle_t audio_mux;
 static esp_codec_dev_handle_t speaker_dev;
 static snd_cb_t audio_cb;
+static bool audio_muted = false;
 
 #define SND_CHUNKSZ 560
 
@@ -35,10 +36,12 @@ static void audio_task(void *arg)
         audio_cb(snd_in, sizeof(snd_in) / sizeof(snd_in[0]));
         sndhw_unlock();
 
-        int written = esp_codec_dev_write(speaker_dev, snd_in, sizeof(snd_in));
-        if (written < 0) {
-            ESP_LOGE(TAG, "esp_codec_dev_write failed: %d", written);
-            vTaskDelay(pdMS_TO_TICKS(10));
+        if (!audio_muted) {
+            int written = esp_codec_dev_write(speaker_dev, snd_in, sizeof(snd_in));
+            if (written < 0) {
+                ESP_LOGE(TAG, "esp_codec_dev_write failed: %d", written);
+                vTaskDelay(pdMS_TO_TICKS(10));
+            }
         }
     }
 }
@@ -67,4 +70,10 @@ void sndhw_init(int samprate, snd_cb_t cb)
 
     xTaskCreatePinnedToCore(&audio_task, "snd", 16 * 1024, NULL, 3, NULL, 1);
     ESP_LOGI(TAG, "BOX-3 speaker initialized");
+}
+
+void sndhw_toggle_mute(void)
+{
+    audio_muted = !audio_muted;
+    ESP_LOGI(TAG, "Audio %s", audio_muted ? "muted" : "unmuted");
 }
