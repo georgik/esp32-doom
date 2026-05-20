@@ -1,6 +1,6 @@
 # ESP32 Doom for ESP-IDF v6.0
 
-This repository ports PrBoom, itself a Doom source port, to the ESP32-S3 using ESP-IDF 6.x. This fork is adapted from the original Espressif [`esp32-doom`](https://github.com/espressif/esp32-doom) project and is configured for the ESP32-S3-BOX-3.
+This repository ports PrBoom, itself a Doom source port, to the ESP32-S3 using ESP-IDF 6.x. This fork is adapted from the original Espressif [`esp32-doom`](https://github.com/espressif/esp32-doom) project and is configured for the ESP32-S3-BOX-3 with support for the ESP-BOX Joystick extension board.
 
 ## Status
 
@@ -9,6 +9,7 @@ This is a proof of concept, not an official Espressif application note. It shoul
 ## Target Hardware
 
 - ESP32-S3-BOX-3
+- ESP-BOX Joystick Controller (extension board with 74HC165 shift register and analog joysticks)
 - ESP32-S3 with PSRAM enabled
 - 16 MB flash layout from `sdkconfig.defaults`
 
@@ -63,13 +64,51 @@ If your IWAD is larger than the current `wad` partition, increase that partition
 
 ## Controls
 
-The controller is emulated on the ESP32-S3-BOX-3 touchscreen:
+### ESP-BOX Joystick Controller
+
+The ESP-BOX Joystick extension board provides full control through physical buttons and analog joysticks.
+
+#### D-Pad and Face Buttons
+
+| Physical Button | In-Game Action |
+|----------------|----------------|
+| D-Pad Up | Move Forward |
+| D-Pad Down | Move Backward |
+| D-Pad Left | Turn Left |
+| D-Pad Right | Turn Right |
+| A Button | Use / Open |
+| B Button | Fire / Shoot |
+| X Button | Switch Weapon |
+| Y Button | Pause / Menu |
+| LB Button | Strafe Left |
+| RB Button | Strafe Right |
+| Start Button | Start Game |
+| Select Button | Automap |
+
+#### Analog Joystick
+
+The left analog joystick provides smooth movement control:
+
+| Axis | Action |
+|------|--------|
+| Left/Right | Turn Left/Right |
+| Up/Down | Move Forward/Backward |
+
+The joystick input overrides the D-pad for directional movement.
+
+#### Mute Button
+
+The ESP32-S3-BOX-3 built-in mute button toggles game audio on and off during gameplay.
+
+### Touchscreen Controls (Fallback)
+
+Touch controls remain available as a fallback input method:
 
 ```text
-                  escape
-    up            open
-left  right       shoot
-   down           wpn_ch
+              escape
+  up          open
+left right   shoot
+  down        wpn_ch
 ```
 
 ## Todo
@@ -82,6 +121,7 @@ left  right       shoot
 
 - Save and load are not supported.
 - The project is tightly configured around the ESP32-S3-BOX-3 setup in this fork.
+- Right joystick is not currently utilized.
 
 ## Credits
 
