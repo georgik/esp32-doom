@@ -40,8 +40,12 @@ static void audio_task(void *arg)
             int written = esp_codec_dev_write(speaker_dev, snd_in, sizeof(snd_in));
             if (written < 0) {
                 ESP_LOGE(TAG, "esp_codec_dev_write failed: %d", written);
-                vTaskDelay(pdMS_TO_TICKS(10));
+                vTaskDelay(pdMS_TO_TICKS(1));
+            } else {
+                taskYIELD();
             }
+        } else {
+            vTaskDelay(pdMS_TO_TICKS(10));
         }
     }
 }

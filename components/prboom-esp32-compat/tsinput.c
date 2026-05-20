@@ -100,8 +100,9 @@ static adc_cali_handle_t adc_cal_left_y = NULL;
 static bool adc_initialized = false;
 
 // Deadzone for joystick (center position tolerance)
-#define JOY_DEADZONE  500
-#define JOY_THRESHOLD  1500  // Threshold to consider joystick moved
+// Using raw ADC values (0-4095), center is ~2048
+#define JOY_CENTER     2048
+#define JOY_DEADZONE   400   // Amount around center to ignore
 
 static void mute_button_cb(void *arg, void *data)
 {
@@ -147,33 +148,21 @@ static uint32_t joystick_to_doom(void)
     int raw_x = 0, raw_y = 0;
     uint32_t result = 0;
 
-    // Read left joystick
+    // Read left joystick (raw ADC values 0-4095)
     adc_oneshot_read(adc_handle, ADC_JOY_LEFT_X, &raw_x);
     adc_oneshot_read(adc_handle, ADC_JOY_LEFT_Y, &raw_y);
 
-    // Convert calibrated if available, otherwise use raw
-    int x = raw_x, y = raw_y;
-    if (adc_cal_left_x) {
-        adc_cali_raw_to_voltage(adc_cal_left_x, raw_x, &x);
-    }
-    if (adc_cal_left_y) {
-        adc_cali_raw_to_voltage(adc_cal_left_y, raw_y, &y);
-    }
-
-    // Center is around 1500-1700mV (or 2048 raw)
-    // Left joystick X: left = turn left, right = turn right
-    // Left joystick Y: up = forward, down = backward
-    int center = 1500;
-
-    if (x < center - JOY_THRESHOLD) {
-        result |= BUT_LEFT;   // Turn left
-    } else if (x > center + JOY_THRESHOLD) {
+    // Left joystick X: inverted - left/right = turn right/left
+    if (raw_x < JOY_CENTER - JOY_DEADZONE) {
         result |= BUT_RIGHT;  // Turn right
+    } else if (raw_x > JOY_CENTER + JOY_DEADZONE) {
+        result |= BUT_LEFT;   // Turn left
     }
 
-    if (y < center - JOY_THRESHOLD) {
+    // Left joystick Y: up = forward, down = backward
+    if (raw_y < JOY_CENTER - JOY_DEADZONE) {
         result |= BUT_UP;     // Forward
-    } else if (y > center + JOY_THRESHOLD) {
+    } else if (raw_y > JOY_CENTER + JOY_DEADZONE) {
         result |= BUT_DOWN;   // Backward
     }
 
